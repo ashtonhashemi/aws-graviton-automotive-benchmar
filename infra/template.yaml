@@ -1,0 +1,306 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: AWS Graviton vs x86 automotive CAN/DTC benchmark lab
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet with outbound internet access so SSM and S3 are reachable.
+  AdminToken:
+    Type: String
+    NoEcho: true
+    MinLength: 16
+    Description: Lab-only token required by the dashboard API. Do not commit this value.
+  X86InstanceType:
+    Type: String
+    Default: c7i.large
+  ArmInstanceType:
+    Type: String
+    Default: c8g.large
+  X86Ami:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+  ArmAmi:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 30
+    MemorySize: 256
+
+Resources:
+  ResultsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireBenchmarkResults
+            Status: Enabled
+            ExpirationInDays: 30
+            Prefix: results/
+
+  ResultsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: run_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: run_id
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  WorkerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: No-inbound benchmark worker security group
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+          Description: Outbound access for SSM, S3, and package bootstrap
+
+  WorkerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: BenchmarkAssetsAndResults
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub '${ResultsBucket.Arn}/*'
+
+  WorkerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref WorkerRole]
+
+  X86Worker:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref X86Ami
+      InstanceType: !Ref X86InstanceType
+      IamInstanceProfile: !Ref WorkerInstanceProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref WorkerSecurityGroup]
+      InstanceInitiatedShutdownBehavior: stop
+      Tags:
+        - Key: Name
+          Value: graviton-benchmark-x86
+        - Key: Project
+          Value: aws-graviton-automotive-benchmark
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf install -y jq
+          python3 --version
+          aws --version
+          systemctl enable --now amazon-ssm-agent || true
+          shutdown -h now
+
+  ArmWorker:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ArmAmi
+      InstanceType: !Ref ArmInstanceType
+      IamInstanceProfile: !Ref WorkerInstanceProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref WorkerSecurityGroup]
+      InstanceInitiatedShutdownBehavior: stop
+      Tags:
+        - Key: Name
+          Value: graviton-benchmark-arm64
+        - Key: Project
+          Value: aws-graviton-automotive-benchmark
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf install -y jq
+          python3 --version
+          aws --version
+          systemctl enable --now amazon-ssm-agent || true
+          shutdown -h now
+
+  ControlApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: $default
+      CorsConfiguration:
+        AllowOrigins: ['*']
+        AllowHeaders: ['content-type', 'x-admin-token']
+        AllowMethods: ['GET', 'POST', 'OPTIONS']
+
+  ControlFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../src/control/
+      Handler: app.handler
+      Environment:
+        Variables:
+          RESULTS_BUCKET: !Ref ResultsBucket
+          RESULTS_TABLE: !Ref ResultsTable
+          X86_INSTANCE_ID: !Ref X86Worker
+          ARM_INSTANCE_ID: !Ref ArmWorker
+          ADMIN_TOKEN: !Ref AdminToken
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - ec2:DescribeInstances
+                - ec2:StartInstances
+                - ec2:StopInstances
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - ssm:SendCommand
+                - ssm:GetCommandInvocation
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:ListBucket
+              Resource:
+                - !GetAtt ResultsBucket.Arn
+                - !Sub '${ResultsBucket.Arn}/*'
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:GetItem
+              Resource: !GetAtt ResultsTable.Arn
+      Events:
+        Status:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ControlApi
+            Path: /status
+            Method: GET
+        InstanceAction:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ControlApi
+            Path: /instances/{arch}/{action}
+            Method: POST
+        RunBenchmark:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ControlApi
+            Path: /benchmark/run
+            Method: POST
+        GetBenchmark:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ControlApi
+            Path: /benchmark/results/{run_id}
+            Method: GET
+
+  DashboardBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+
+  DashboardOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${AWS::StackName}-dashboard-oac'
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  DashboardDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        PriceClass: PriceClass_100
+        HttpVersion: http2
+        Origins:
+          - Id: dashboard-s3
+            DomainName: !GetAtt DashboardBucket.RegionalDomainName
+            OriginAccessControlId: !Ref DashboardOriginAccessControl
+            S3OriginConfig: {}
+        DefaultCacheBehavior:
+          TargetOriginId: dashboard-s3
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD, OPTIONS]
+          Compress: true
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+
+  DashboardBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DashboardBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: CloudFrontReadOnly
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${DashboardBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${DashboardDistribution}'
+
+Outputs:
+  ApiUrl:
+    Value: !Sub 'https://${ControlApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}'
+  DashboardUrl:
+    Value: !Sub 'https://${DashboardDistribution.DomainName}'
+  DashboardBucket:
+    Value: !Ref DashboardBucket
+  DashboardDistributionId:
+    Value: !Ref DashboardDistribution
+  ResultsBucket:
+    Value: !Ref ResultsBucket
+  ResultsTable:
+    Value: !Ref ResultsTable
+  X86InstanceId:
+    Value: !Ref X86Worker
+  ArmInstanceId:
+    Value: !Ref ArmWorker
