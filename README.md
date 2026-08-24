@@ -65,34 +65,52 @@ make test
 
 Prerequisites: AWS CLI v2, AWS SAM CLI, Python 3, AWS credentials configured locally, a VPC, and a subnet with outbound internet connectivity.
 
+Clone the repository and verify your AWS identity:
+
 ```bash
-export AWS_REGION=us-west-2
-export VPC_ID=vpc-xxxxxxxx
-export SUBNET_ID=subnet-xxxxxxxx
-export ADMIN_TOKEN="use-a-long-random-secret-here"
-./scripts/deploy.sh
+git clone https://github.com/ashtonhashemi/aws-graviton-automotive-benchmar.git
+cd aws-graviton-automotive-benchmar
+aws sts get-caller-identity
 ```
 
-The script deploys the stack, uploads `benchmark.py` to the private results bucket, uploads the dashboard to its private S3 origin, creates the dashboard configuration, and prints the CloudFront URL.
+If your account still has a default VPC, these commands select it and a subnet that automatically assigns public IPv4 addresses:
+
+```bash
+export AWS_REGION=us-west-2
+export VPC_ID="$(aws ec2 describe-vpcs --region "$AWS_REGION" --filters Name=is-default,Values=true --query 'Vpcs[0].VpcId' --output text)"
+export SUBNET_ID="$(aws ec2 describe-subnets --region "$AWS_REGION" --filters Name=vpc-id,Values="$VPC_ID" Name=map-public-ip-on-launch,Values=true --query 'Subnets[0].SubnetId' --output text)"
+```
+
+If those commands return `None`, provide the IDs of a VPC and subnet that have outbound internet access (public subnet or private subnet through NAT).
+
+Generate a dashboard token and deploy:
+
+```bash
+export ADMIN_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+printf 'Save this ADMIN_TOKEN: %s\n' "$ADMIN_TOKEN"
+bash scripts/deploy.sh
+```
+
+The script runs `sam build` and `sam deploy`, uploads `benchmark.py` to the private results bucket, uploads the dashboard to its private S3 origin, creates the dashboard configuration, and prints the CloudFront URL and API URL.
 
 **Cost control:** the workers bootstrap once and then shut themselves down. Benchmark runs also default to auto-stop after uploading results. You can stop both at any time from the dashboard or:
 
 ```bash
-./scripts/stop-workers.sh
+bash scripts/stop-workers.sh
 ```
 
-when they are not under test. Delete the entire lab with:
+Delete the entire lab with:
 
 ```bash
-./scripts/destroy.sh
+bash scripts/destroy.sh
 ```
 
 ## Running a comparison
 
-1. Open the CloudFront dashboard.
+1. Open the CloudFront dashboard printed by the deployment script.
 2. Enter the `ADMIN_TOKEN` used during deployment. It is held only in browser session storage.
 3. Click **Start Both**.
-4. Wait until both show `running` and SSM has had time to reconnect.
+4. Wait until both show `running` and allow Systems Manager a short time to reconnect.
 5. Select `baseline` or `optimized`, workload size, and iteration count.
 6. Run the benchmark and wait for both JSON results.
 7. Compare throughput and wall time.
