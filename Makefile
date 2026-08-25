@@ -1,6 +1,7 @@
 .PHONY: test package
 
 test:
+	python3 -m py_compile src/control/app.py src/control/p2_sim.py diagnostic_timing/aws_measured/p2_target_ecu.py diagnostic_timing/aws_measured/p2_relay.py diagnostic_timing/aws_measured/p2_tester.py
 	python3 tests/test_esc.py
 	python3 benchmark/benchmark.py --records 10000 --iterations 2 --mode baseline --esc on --output /tmp/graviton-baseline.json
 	python3 benchmark/benchmark.py --records 10000 --iterations 2 --mode optimized --esc on --output /tmp/graviton-optimized.json
