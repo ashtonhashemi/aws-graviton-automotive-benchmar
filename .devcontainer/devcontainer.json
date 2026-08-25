@@ -1,0 +1,25 @@
+{
+  "name": "AWS Graviton Automotive Benchmark",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/aws-cli:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "hostRequirements": {
+    "cpus": 2,
+    "memory": "4gb",
+    "storage": "16gb"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "amazonwebservices.aws-toolkit-vscode",
+        "ms-python.python",
+        "redhat.vscode-yaml"
+      ]
+    }
+  },
+  "postCreateCommand": "aws --version && sam --version && python --version && make test"
+}
