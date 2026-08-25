@@ -98,19 +98,19 @@
       <section class="panel lab-intro">
         <p class="eyebrow">Experiment 02 · OBDonUDS architecture timing</p>
         <h2>P2Tester — Distributed vs Zonal</h2>
-        <p>Compare tester-to-response timing for a conventional distributed path, transparent zonal Ethernet routing, and an HPC diagnostic-proxy architecture. Use the model for rapid trade studies or the measured mode for real multi-node AWS VPC timing.</p>
+        <p>Compare tester-to-response timing for a conventional distributed path, transparent zonal Ethernet routing, and an HPC diagnostic-proxy architecture. Use the measured mode for real multi-node AWS VPC timing or the model for rapid trade studies.</p>
       </section>
 
       <section class="panel mode-panel">
         <label>Study mode
           <select id="p2Mode">
+            <option value="measured" selected>Measured AWS — four EC2 nodes</option>
             <option value="model">Timing model — AWS Lambda Monte Carlo</option>
-            <option value="measured">Measured AWS — four EC2 nodes</option>
           </select>
         </label>
       </section>
 
-      <div id="p2ModelView">
+      <div id="p2ModelView" hidden>
         <section class="panel model-note">
           <strong>Model mode</strong>
           <p>Monte Carlo architecture trade study. Delay distributions are explicit engineering assumptions, not measured vehicle-network values and not normative SAE/ISO timing values.</p>
@@ -170,7 +170,7 @@
         </section>
       </div>
 
-      <div id="p2MeasuredView" hidden>
+      <div id="p2MeasuredView">
         <section class="panel measured-note">
           <strong>Measured AWS mode</strong>
           <p>P2Tester is measured end-to-end on the external Tester EC2 monotonic clock over real persistent TCP/IPv4 inside the VPC. Target ECU processing is a controlled test stimulus. Per-node processing is measured locally; cross-host wall clocks are recorded for observability but are not used to calculate the P2Tester result.</p>
@@ -268,5 +268,6 @@
   </main>
   <script src="config.js"></script>
   <script src="app.js"></script>
+  <script>showP2Mode('measured');</script>
 </body>
 </html>
