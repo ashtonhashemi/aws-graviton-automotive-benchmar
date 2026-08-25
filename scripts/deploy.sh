@@ -17,6 +17,7 @@ sam deploy \
   --resolve-s3 \
   --capabilities CAPABILITY_IAM \
   --no-confirm-changeset \
+  --no-fail-on-empty-changeset \
   --parameter-overrides \
     VpcId="$VPC_ID" \
     SubnetId="$SUBNET_ID" \
