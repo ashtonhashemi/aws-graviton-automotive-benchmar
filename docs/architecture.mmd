@@ -1,15 +1,29 @@
 flowchart LR
-  U[Engineer / Browser] --> CF[CloudFront Dashboard]
+  U[Engineer / Browser] --> CF[CloudFront ESC SIL Dashboard]
   CF --> S3D[(Private S3 Dashboard Bucket)]
   U -->|X-Admin-Token| API[API Gateway HTTP API]
   API --> L[Control Lambda]
   L -->|Start / Stop| EC2X[c7i x86_64 EC2]
   L -->|Start / Stop| EC2A[c8g Graviton4 ARM64 EC2]
-  L -->|Run command| SSM[AWS Systems Manager]
+  L -->|Run identical SIL workload| SSM[AWS Systems Manager]
   SSM --> EC2X
   SSM --> EC2A
-  EC2X -->|JSON results| S3R[(S3 Results Bucket)]
-  EC2A -->|JSON results| S3R
+
+  subgraph SIL[FMVSS 126-inspired ESC SIL workload]
+    MAN[Sine-with-Dwell steering\n0.7 Hz + 500 ms dwell]
+    CAN[Simulated CAN\nsteering + speed + yaw + lateral acceleration]
+    ESC[ESC Controller\ndesired yaw + corrective yaw moment]
+    VEH[Simplified nonlinear\nbicycle vehicle model]
+    ETH[Simulated Ethernet telemetry\n100 ms binary packets]
+    MET[Yaw decay + lateral displacement\npass/fail metrics]
+    MAN --> CAN --> ESC --> VEH --> CAN
+    VEH --> ETH --> MET
+  end
+
+  EC2X --> SIL
+  EC2A --> SIL
+  EC2X -->|JSON result| S3R[(S3 Results Bucket)]
+  EC2A -->|JSON result| S3R
   L --> S3R
   L --> DDB[(DynamoDB Run Metadata)]
-  U -->|Poll results| API
+  U -->|Poll FMVSS-style + compute results| API
