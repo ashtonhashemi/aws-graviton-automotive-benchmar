@@ -1,8 +1,39 @@
 # AWS Graviton Automotive Benchmark
 
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/ashtonhashemi/aws-graviton-automotive-benchmar?quickstart=1)
+
 A portfolio-scale engineering lab that compares an **x86_64 EC2 worker** with an **AWS Graviton ARM64 worker** using the same synthetic automotive CAN/DTC processing workload.
 
 The goal is not merely to launch a Graviton instance. The repository demonstrates infrastructure-as-code, architecture-aware deployment, remote test orchestration, repeatable benchmarking, result capture, performance tuning, and cost-conscious lifecycle control.
+
+## One-click browser VS Code
+
+The repository includes a GitHub Codespaces dev container with Python, AWS CLI, AWS SAM CLI, GitHub CLI, `jq`, `make`, AWS Toolkit for VS Code, Python tooling, and YAML support.
+
+Click the **Open in GitHub Codespaces** badge above. GitHub will create or resume a browser-based VS Code environment with this repository already checked out.
+
+In the Codespaces terminal, authenticate to your AWS account:
+
+```bash
+aws configure
+aws sts get-caller-identity
+```
+
+If your AWS account uses IAM Identity Center instead:
+
+```bash
+aws configure sso
+aws sso login
+aws sts get-caller-identity
+```
+
+Then deploy the complete lab with one command:
+
+```bash
+bash scripts/codespace-deploy.sh
+```
+
+The helper selects the default VPC and a public-IP-enabled subnet in `us-west-2`, generates and saves a dashboard admin token, then calls the normal SAM deployment script. If your account has no default VPC, set `VPC_ID` and `SUBNET_ID` manually before rerunning it.
 
 ## What it does
 
@@ -45,7 +76,8 @@ infra/              AWS SAM / CloudFormation infrastructure
 src/control/        Lambda dashboard/control-plane API
 dashboard/          Static benchmark dashboard
 docs/               Architecture and tuning notes
-scripts/             Deploy, stop, and destroy helpers
+scripts/             Deploy, stop, destroy, and Codespaces helpers
+.devcontainer/       Browser VS Code / GitHub Codespaces environment
 .github/workflows/  Smoke test + SAM validation
 ```
 
@@ -63,7 +95,7 @@ make test
 
 ## AWS deployment
 
-Prerequisites: AWS CLI v2, AWS SAM CLI, Python 3, AWS credentials configured locally, a VPC, and a subnet with outbound internet connectivity.
+Prerequisites: AWS CLI v2, AWS SAM CLI, Python 3, AWS credentials configured locally, a VPC, and a subnet with outbound internet connectivity. GitHub Codespaces users can use the one-click workflow above instead.
 
 Clone the repository and verify your AWS identity:
 
