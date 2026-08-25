@@ -2,9 +2,10 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="/tmp/p2-measured-test.json"
-TARGET_PORT=15402
-ZONE_PORT=15401
-HPC_PORT=15400
+PORT=15400
+HPC_IP=127.0.0.2
+ZONE_IP=127.0.0.3
+TARGET_IP=127.0.0.4
 PIDS=()
 cleanup() {
   for pid in "${PIDS[@]:-}"; do kill "$pid" 2>/dev/null || true; done
@@ -12,18 +13,18 @@ cleanup() {
 trap cleanup EXIT
 
 python3 "$ROOT/diagnostic_timing/aws_measured/p2_target_ecu.py" \
-  --host 127.0.0.1 --port "$TARGET_PORT" --mean-ms 1 --sigma-ms 0.1 --min-ms 0.5 --max-ms 2 --idle-timeout-s 20 &
+  --host "$TARGET_IP" --port "$PORT" --mean-ms 1 --sigma-ms 0.1 --min-ms 0.5 --max-ms 2 --idle-timeout-s 20 &
 PIDS+=("$!")
 python3 "$ROOT/diagnostic_timing/aws_measured/p2_relay.py" \
-  --role zone --host 127.0.0.1 --port "$ZONE_PORT" --downstream-host 127.0.0.1 --downstream-port "$TARGET_PORT" --idle-timeout-s 20 &
+  --role zone --host "$ZONE_IP" --port "$PORT" --downstream-host "$TARGET_IP" --downstream-port "$PORT" --idle-timeout-s 20 &
 PIDS+=("$!")
 python3 "$ROOT/diagnostic_timing/aws_measured/p2_relay.py" \
-  --role hpc --host 127.0.0.1 --port "$HPC_PORT" --downstream-host 127.0.0.1 --downstream-port "$ZONE_PORT" --proxy-work-ms 0.2 --idle-timeout-s 20 &
+  --role hpc --host "$HPC_IP" --port "$PORT" --downstream-host "$ZONE_IP" --downstream-port "$PORT" --proxy-work-ms 0.2 --idle-timeout-s 20 &
 PIDS+=("$!")
 
 sleep 0.5
 python3 "$ROOT/diagnostic_timing/aws_measured/p2_tester.py" \
-  --architecture all --hpc-ip 127.0.0.1 --zone-ip 127.0.0.1 --port "$HPC_PORT" \
+  --architecture all --hpc-ip "$HPC_IP" --zone-ip "$ZONE_IP" --port "$PORT" \
   --samples 30 --budget-ms 20 --output "$OUT"
 
 python3 - "$OUT" <<'PY'
