@@ -65,13 +65,20 @@ $('saveConfig').onclick = async () => {
 
 async function refresh() {
   try {
-    setStatus('Checking AWS node status…', 'working');
+    setStatus('Checking AWS node and Systems Manager status…', 'working');
     const s = await call('/status');
-    $('x86State').textContent = s.x86_64.state;
+    $('x86State').textContent = `${s.x86_64.state} · SSM ${s.x86_64.ssm_ping_status}`;
     $('x86Type').textContent = `${s.x86_64.instance_type} · ${s.x86_64.architecture} · ${s.x86_64.private_ip || 'no private IP'}`;
-    $('armState').textContent = s.arm64.state;
+    $('armState').textContent = `${s.arm64.state} · SSM ${s.arm64.ssm_ping_status}`;
     $('armType').textContent = `${s.arm64.instance_type} · ${s.arm64.architecture} · ${s.arm64.private_ip || 'no private IP'}`;
-    setStatus(`Connected. ZCU: ${s.x86_64.state} · Graviton HPC: ${s.arm64.state}`, 'success');
+
+    const ready = s.x86_64.state === 'running' && s.arm64.state === 'running' &&
+      s.x86_64.ssm_ping_status === 'Online' && s.arm64.ssm_ping_status === 'Online';
+    if (ready) {
+      setStatus('HPC and ZCU are running and SSM Online. Ready to run the distributed ESC test.', 'success');
+    } else {
+      setStatus(`Not ready yet. ZCU: ${s.x86_64.state}/SSM ${s.x86_64.ssm_ping_status} · HPC: ${s.arm64.state}/SSM ${s.arm64.ssm_ping_status}. Refresh until both are SSM Online.`, 'working');
+    }
   } catch (e) { setStatus(e.message, 'error'); }
 }
 
