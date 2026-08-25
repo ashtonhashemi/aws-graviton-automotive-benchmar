@@ -36,6 +36,8 @@ REAR_FORCE_LIMIT_N = 4500.0
 SENSOR = struct.Struct("!Idfffff")
 COMMAND = struct.Struct("!Iff")
 STOP_SEQUENCE = 0xFFFFFFFF
+HANDSHAKE_SEQUENCE = 0
+FIRST_CONTROL_SEQUENCE = 1
 
 
 def clamp(value: float, lo: float, hi: float) -> float:
@@ -70,6 +72,24 @@ def percentile(values: list[float], q: float) -> float | None:
     return ordered[max(0, min(len(ordered) - 1, math.ceil(len(ordered) * q) - 1))]
 
 
+def wait_for_zcu(sock: socket.socket, target: tuple[str, int], startup_timeout_s: float = 20.0) -> float:
+    """Wait until the x86 ZCU answers a real UDP frame before starting the maneuver."""
+    deadline = time.monotonic() + startup_timeout_s
+    while time.monotonic() < deadline:
+        sent_ns = time.perf_counter_ns()
+        probe = SENSOR.pack(HANDSHAKE_SEQUENCE, sent_ns, 0.0, ENTRY_SPEED_KPH, 0.0, 0.0, 0.0)
+        try:
+            sock.sendto(probe, target)
+            response, _peer = sock.recvfrom(128)
+            recv_ns = time.perf_counter_ns()
+            seq, _moment, _processing_us = COMMAND.unpack(response)
+            if seq == HANDSHAKE_SEQUENCE:
+                return (recv_ns - sent_ns) / 1_000_000.0
+        except socket.timeout:
+            time.sleep(0.1)
+    raise RuntimeError(f"x86 ZCU did not answer UDP/{target[1]} at {target[0]} within {startup_timeout_s}s")
+
+
 def run_once(zcu_ip: str, port: int, esc: str, timeout_ms: float, realtime: bool) -> dict:
     bos = 1.0
     cos = bos + (1.0 / STEER_FREQUENCY_HZ) + DWELL_SECONDS
@@ -79,6 +99,7 @@ def run_once(zcu_ip: str, port: int, esc: str, timeout_ms: float, realtime: bool
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.settimeout(timeout_ms / 1000.0)
     target = (zcu_ip, port)
+    handshake_rtt_ms = wait_for_zcu(sock, target)
 
     vy = yaw_rate = psi = lateral_position = ay = 0.0
     last_moment = 0.0
@@ -86,7 +107,7 @@ def run_once(zcu_ip: str, port: int, esc: str, timeout_ms: float, realtime: bool
     rtt_ms: list[float] = []
     zcu_processing_us: list[float] = []
     packets_sent = packets_received = deadline_misses = 0
-    seq = 0
+    seq = FIRST_CONTROL_SEQUENCE
     t = 0.0
     run_start = time.perf_counter()
     next_deadline = run_start
@@ -107,6 +128,7 @@ def run_once(zcu_ip: str, port: int, esc: str, timeout_ms: float, realtime: bool
         )
 
         packets_sent += 1
+        current_rtt = None
         try:
             sock.sendto(payload, target)
             response, _peer = sock.recvfrom(128)
@@ -115,10 +137,10 @@ def run_once(zcu_ip: str, port: int, esc: str, timeout_ms: float, realtime: bool
             if rseq == seq:
                 last_moment = float(moment) if esc == "on" else 0.0
                 packets_received += 1
-                rtt = (recv_ns - sent_ns) / 1_000_000.0
-                rtt_ms.append(rtt)
+                current_rtt = (recv_ns - sent_ns) / 1_000_000.0
+                rtt_ms.append(current_rtt)
                 zcu_processing_us.append(float(processing_us))
-                if rtt > DT * 1000.0:
+                if current_rtt > DT * 1000.0:
                     deadline_misses += 1
         except socket.timeout:
             deadline_misses += 1
@@ -144,7 +166,7 @@ def run_once(zcu_ip: str, port: int, esc: str, timeout_ms: float, realtime: bool
             "lateral_accel_mps2": round(ay, 4),
             "lateral_displacement_m": round(lateral_position, 4),
             "esc_yaw_moment_nm": round(last_moment, 2),
-            "network_rtt_ms": round(rtt_ms[-1], 4) if rtt_ms else None,
+            "network_rtt_ms": round(current_rtt, 4) if current_rtt is not None else None,
         })
 
         seq += 1
@@ -186,6 +208,7 @@ def run_once(zcu_ip: str, port: int, esc: str, timeout_ms: float, realtime: bool
         "dwell_seconds": DWELL_SECONDS,
         "sample_period_ms": int(DT * 1000),
         "scenario_steps": len(samples),
+        "handshake_rtt_ms": round(handshake_rtt_ms, 4),
         "packets_sent": packets_sent,
         "packets_received": packets_received,
         "packets_lost": packets_sent - packets_received,
