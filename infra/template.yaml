@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: Distributed ESC SIL lab with Graviton HPC and x86 ZCU over real VPC UDP Ethernet
+Description: AWS automotive systems lab with distributed ESC SIL and measured OBDonUDS-style P2Tester architecture timing
 
 Parameters:
   VpcId:
@@ -19,6 +19,10 @@ Parameters:
   ArmInstanceType:
     Type: String
     Default: c8g.large
+  P2NodeInstanceType:
+    Type: String
+    Default: t3.small
+    Description: Instance type for Tester, HPC, Zone, and Target nodes in the measured P2Tester lab.
   X86Ami:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
@@ -68,7 +72,7 @@ Resources:
   WorkerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Distributed ESC SIL workers; no public inbound access
+      GroupDescription: Automotive lab workers; no public inbound access
       VpcId: !Ref VpcId
       SecurityGroupEgress:
         - IpProtocol: '-1'
@@ -84,6 +88,16 @@ Resources:
       ToPort: 5005
       SourceSecurityGroupId: !Ref WorkerSecurityGroup
       Description: Real 100 Hz ESC sensor and command traffic between HPC and ZCU
+
+  P2TcpIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref WorkerSecurityGroup
+      IpProtocol: tcp
+      FromPort: 13400
+      ToPort: 13400
+      SourceSecurityGroupId: !Ref WorkerSecurityGroup
+      Description: Private OBDonUDS-style P2Tester measurement traffic between lab nodes
 
   WorkerRole:
     Type: AWS::IAM::Role
@@ -165,6 +179,110 @@ Resources:
           systemctl enable --now amazon-ssm-agent || true
           shutdown -h now
 
+  P2TesterWorker:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref X86Ami
+      InstanceType: !Ref P2NodeInstanceType
+      IamInstanceProfile: !Ref WorkerInstanceProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref WorkerSecurityGroup]
+      InstanceInitiatedShutdownBehavior: stop
+      Tags:
+        - Key: Name
+          Value: p2tester-external-tester
+        - Key: Role
+          Value: P2-Tester
+        - Key: Project
+          Value: aws-graviton-automotive-benchmark
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf install -y jq
+          python3 --version
+          aws --version
+          systemctl enable --now amazon-ssm-agent || true
+          shutdown -h now
+
+  P2HpcWorker:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref X86Ami
+      InstanceType: !Ref P2NodeInstanceType
+      IamInstanceProfile: !Ref WorkerInstanceProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref WorkerSecurityGroup]
+      InstanceInitiatedShutdownBehavior: stop
+      Tags:
+        - Key: Name
+          Value: p2tester-hpc
+        - Key: Role
+          Value: P2-HPC
+        - Key: Project
+          Value: aws-graviton-automotive-benchmark
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf install -y jq
+          python3 --version
+          aws --version
+          systemctl enable --now amazon-ssm-agent || true
+          shutdown -h now
+
+  P2ZoneWorker:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref X86Ami
+      InstanceType: !Ref P2NodeInstanceType
+      IamInstanceProfile: !Ref WorkerInstanceProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref WorkerSecurityGroup]
+      InstanceInitiatedShutdownBehavior: stop
+      Tags:
+        - Key: Name
+          Value: p2tester-zone-controller
+        - Key: Role
+          Value: P2-Zone
+        - Key: Project
+          Value: aws-graviton-automotive-benchmark
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf install -y jq
+          python3 --version
+          aws --version
+          systemctl enable --now amazon-ssm-agent || true
+          shutdown -h now
+
+  P2TargetWorker:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref X86Ami
+      InstanceType: !Ref P2NodeInstanceType
+      IamInstanceProfile: !Ref WorkerInstanceProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref WorkerSecurityGroup]
+      InstanceInitiatedShutdownBehavior: stop
+      Tags:
+        - Key: Name
+          Value: p2tester-target-ecu
+        - Key: Role
+          Value: P2-Target-ECU
+        - Key: Project
+          Value: aws-graviton-automotive-benchmark
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf install -y jq
+          python3 --version
+          aws --version
+          systemctl enable --now amazon-ssm-agent || true
+          shutdown -h now
+
   ControlApi:
     Type: AWS::Serverless::HttpApi
     Properties:
@@ -185,6 +303,10 @@ Resources:
           RESULTS_TABLE: !Ref ResultsTable
           X86_INSTANCE_ID: !Ref X86Worker
           ARM_INSTANCE_ID: !Ref ArmWorker
+          P2_TESTER_INSTANCE_ID: !Ref P2TesterWorker
+          P2_HPC_INSTANCE_ID: !Ref P2HpcWorker
+          P2_ZONE_INSTANCE_ID: !Ref P2ZoneWorker
+          P2_TARGET_INSTANCE_ID: !Ref P2TargetWorker
           ADMIN_TOKEN: !Ref AdminToken
       Policies:
         - Version: '2012-10-17'
@@ -244,6 +366,30 @@ Resources:
             ApiId: !Ref ControlApi
             Path: /p2/simulate
             Method: POST
+        P2MeasuredStatus:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ControlApi
+            Path: /p2/measured/status
+            Method: GET
+        P2MeasuredFleetAction:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ControlApi
+            Path: /p2/measured/nodes/{action}
+            Method: POST
+        P2MeasuredRun:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ControlApi
+            Path: /p2/measured/run
+            Method: POST
+        P2MeasuredResults:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ControlApi
+            Path: /p2/measured/results/{run_id}
+            Method: GET
 
   DashboardBucket:
     Type: AWS::S3::Bucket
@@ -329,3 +475,19 @@ Outputs:
     Value: !Ref ArmWorker
   GravitonHpcPrivateIp:
     Value: !GetAtt ArmWorker.PrivateIp
+  P2TesterInstanceId:
+    Value: !Ref P2TesterWorker
+  P2TesterPrivateIp:
+    Value: !GetAtt P2TesterWorker.PrivateIp
+  P2HpcInstanceId:
+    Value: !Ref P2HpcWorker
+  P2HpcPrivateIp:
+    Value: !GetAtt P2HpcWorker.PrivateIp
+  P2ZoneInstanceId:
+    Value: !Ref P2ZoneWorker
+  P2ZonePrivateIp:
+    Value: !GetAtt P2ZoneWorker.PrivateIp
+  P2TargetInstanceId:
+    Value: !Ref P2TargetWorker
+  P2TargetPrivateIp:
+    Value: !GetAtt P2TargetWorker.PrivateIp
