@@ -56,12 +56,12 @@ def start_stop(instance_id, action):
         raise ValueError("action must be start or stop")
 
 
-def command_for(run_id, arch, records, iterations, mode, auto_stop):
+def command_for(run_id, arch, records, iterations, mode, esc, auto_stop):
     out = f"/tmp/{run_id}-{arch}.json"
     commands = [
         "set -euo pipefail",
         f"aws s3 cp s3://{BUCKET}/assets/benchmark.py /tmp/benchmark.py",
-        f"python3 /tmp/benchmark.py --records {records} --iterations {iterations} --mode {mode} --output {out}",
+        f"python3 /tmp/benchmark.py --records {records} --iterations {iterations} --mode {mode} --esc {esc} --output {out}",
         f"aws s3 cp {out} s3://{BUCKET}/results/{run_id}/{arch}.json",
     ]
     if auto_stop:
@@ -70,11 +70,17 @@ def command_for(run_id, arch, records, iterations, mode, auto_stop):
 
 
 def run_benchmark(body):
-    records = int(body.get("records", 500000))
-    iterations = int(body.get("iterations", 5))
+    records = int(body.get("records", 100000))
+    iterations = int(body.get("iterations", 3))
     mode = body.get("mode", "baseline")
+    esc = body.get("esc", "on")
     auto_stop = bool(body.get("auto_stop", True))
-    if not (1 <= records <= 5_000_000 and 1 <= iterations <= 20 and mode in ("baseline", "optimized")):
+    if not (
+        1 <= records <= 5_000_000
+        and 1 <= iterations <= 20
+        and mode in ("baseline", "optimized")
+        and esc in ("on", "off")
+    ):
         raise ValueError("invalid benchmark parameters")
 
     states = {"x86_64": state(X86_ID), "arm64": state(ARM_ID)}
@@ -87,7 +93,7 @@ def run_benchmark(body):
         r = SSM.send_command(
             InstanceIds=[iid],
             DocumentName="AWS-RunShellScript",
-            Parameters={"commands": command_for(run_id, arch, records, iterations, mode, auto_stop)},
+            Parameters={"commands": command_for(run_id, arch, records, iterations, mode, esc, auto_stop)},
             TimeoutSeconds=3600,
         )
         commands[arch] = r["Command"]["CommandId"]
@@ -98,6 +104,7 @@ def run_benchmark(body):
         "records": records,
         "iterations": iterations,
         "mode": mode,
+        "esc": esc,
         "auto_stop": auto_stop,
         "x86_command_id": commands["x86_64"],
         "arm_command_id": commands["arm64"],
@@ -127,9 +134,11 @@ def get_result(run_id):
     if x86 and arm:
         xt = float(x86["throughput_records_per_sec"])
         at = float(arm["throughput_records_per_sec"])
+        functional_match = x86.get("result") == arm.get("result")
         body["comparison"] = {
             "arm_vs_x86_throughput_ratio": round(at / xt, 3) if xt else None,
             "faster_architecture": "arm64" if at > xt else "x86_64",
+            "functional_results_match": functional_match,
         }
     return response(200, body)
 
