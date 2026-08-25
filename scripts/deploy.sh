@@ -64,7 +64,12 @@ aws s3 cp dashboard/style.css "s3://$DASHBOARD_BUCKET/style.css" \
   --region "$REGION"
 
 TMP_CONFIG="$(mktemp)"
-printf 'window.APP_CONFIG = { apiBase: %s };\n' "$(printf '%s' "$API_URL" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')" > "$TMP_CONFIG"
+python3 - "$API_URL" > "$TMP_CONFIG" <<'PY'
+import json, sys
+api_url = sys.argv[1]
+print(f"window.APP_CONFIG = {{ apiBase: {json.dumps(api_url)} }};")
+print("try { if (!sessionStorage.getItem('p2ModeMeasuredDefaultV1')) { sessionStorage.setItem('p2Mode', 'measured'); sessionStorage.setItem('p2ModeMeasuredDefaultV1', '1'); } } catch (_) {}")
+PY
 aws s3 cp "$TMP_CONFIG" "s3://$DASHBOARD_BUCKET/config.js" \
   --content-type application/javascript \
   --cache-control 'no-store,no-cache,must-revalidate,max-age=0' \
