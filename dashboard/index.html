@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>FMVSS 126 ESC SIL — Graviton vs x86</title>
+  <title>Distributed ESC SIL — Graviton HPC + x86 ZCU</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <main>
     <header>
-      <p class="eyebrow">Automotive SIL · AWS compute benchmark</p>
-      <h1>FMVSS 126 ESC SIL</h1>
-      <p>Run the same Sine-with-Dwell stability-control simulation on x86_64 EC2 and AWS Graviton, with simulated CAN control signals and Ethernet telemetry.</p>
+      <p class="eyebrow">Distributed automotive SIL · real AWS VPC Ethernet</p>
+      <h1>ESC SIL: HPC ↔ ZCU</h1>
+      <p>AWS Graviton runs the vehicle dynamics and FMVSS 126-inspired Sine-with-Dwell maneuver. An x86 EC2 node represents the ZCU and runs the ESC controller. The 100 Hz control loop crosses real bidirectional UDP/IP over the AWS VPC.</p>
     </header>
 
     <div id="globalStatus" class="status-banner info" role="status" aria-live="polite">Loading dashboard configuration…</div>
@@ -23,51 +23,62 @@
     </section>
 
     <section class="panel fleet-actions">
-      <button id="startBoth">Start Both</button>
-      <button id="stopBoth">Stop Both</button>
+      <button id="startBoth">Start HPC + ZCU</button>
+      <button id="stopBoth">Stop HPC + ZCU</button>
       <button id="refresh">Refresh Status</button>
     </section>
 
     <section class="grid">
       <article class="panel worker">
-        <h2>x86_64</h2><p id="x86State">Unknown</p><p id="x86Type">—</p>
-        <div class="actions"><button data-arch="x86_64" data-action="start">Start</button><button data-arch="x86_64" data-action="stop">Stop</button></div>
+        <p class="eyebrow">Controller node</p>
+        <h2>x86 EC2 · ZCU / ESC</h2>
+        <p id="x86State">Unknown</p><p id="x86Type">—</p>
+        <div class="actions"><button data-arch="x86_64" data-action="start">Start ZCU</button><button data-arch="x86_64" data-action="stop">Stop ZCU</button></div>
       </article>
       <article class="panel worker">
-        <h2>ARM64 / Graviton</h2><p id="armState">Unknown</p><p id="armType">—</p>
-        <div class="actions"><button data-arch="arm64" data-action="start">Start</button><button data-arch="arm64" data-action="stop">Stop</button></div>
+        <p class="eyebrow">Simulation node</p>
+        <h2>AWS Graviton · HPC</h2>
+        <p id="armState">Unknown</p><p id="armType">—</p>
+        <div class="actions"><button data-arch="arm64" data-action="start">Start HPC</button><button data-arch="arm64" data-action="stop">Stop HPC</button></div>
       </article>
     </section>
 
     <section class="panel">
-      <h2>ESC Sine-with-Dwell Test</h2>
-      <p>Illustrative SIL model based on the FMVSS No. 126 maneuver and pass/fail metrics. This is not a certification test.</p>
+      <h2>FMVSS 126-inspired ESC Test</h2>
+      <p>Illustrative SIL engineering model, not an FMVSS certification test. The Graviton HPC sends steering, speed, yaw rate, lateral acceleration and sideslip to the x86 ZCU every 10 ms; the ZCU returns the ESC corrective yaw moment.</p>
       <div class="form-row">
-        <label>Target simulation steps <input id="records" type="number" min="1" max="5000000" value="100000" /></label>
-        <label>Iterations <input id="iterations" type="number" min="1" max="20" value="3" /></label>
         <label>ESC state <select id="esc"><option value="on">ESC ON</option><option value="off">ESC OFF</option></select></label>
-        <label>Compute mode <select id="mode"><option value="baseline">Baseline</option><option value="optimized">Optimized</option></select></label>
-        <label class="check"><span>Auto-stop workers</span><input id="autoStop" type="checkbox" checked /></label>
+        <label class="check"><span>Auto-stop nodes after test</span><input id="autoStop" type="checkbox" checked /></label>
       </div>
-      <button id="run">Run ESC simulation</button>
+      <button id="run">Run distributed ESC test</button>
       <p id="runStatus">No simulation running.</p>
     </section>
 
     <section class="panel">
       <h2>FMVSS-style Results</h2>
       <table>
-        <thead><tr><th>Architecture</th><th>Yaw @ 1.0 s</th><th>Yaw @ 1.75 s</th><th>Lateral displacement</th><th>ESC result</th></tr></thead>
-        <tbody id="results"><tr><td colspan="5">No results yet.</td></tr></tbody>
+        <thead><tr><th>Yaw @ 1.0 s</th><th>Yaw @ 1.75 s</th><th>Lateral displacement</th><th>ESC result</th></tr></thead>
+        <tbody id="results"><tr><td colspan="4">No results yet.</td></tr></tbody>
       </table>
       <p id="comparison"></p>
     </section>
 
     <section class="panel">
-      <h2>Compute Performance</h2>
+      <h2>Real VPC Ethernet Control Loop</h2>
       <table>
-        <thead><tr><th>Architecture</th><th>Wall time</th><th>Simulation steps/s</th><th>CPU time</th><th>Max RSS</th></tr></thead>
-        <tbody id="computeResults"><tr><td colspan="5">No results yet.</td></tr></tbody>
+        <thead><tr><th>Packets sent</th><th>Received</th><th>Loss</th><th>Mean RTT</th><th>P95 RTT</th><th>Deadline misses</th></tr></thead>
+        <tbody id="networkResults"><tr><td colspan="6">No network results yet.</td></tr></tbody>
       </table>
+      <p id="zcuMetrics"></p>
+    </section>
+
+    <section class="panel traces">
+      <h2>Vehicle & Control Time Histories</h2>
+      <div class="chart-card"><h3>Steering wheel angle</h3><canvas id="steeringChart" width="960" height="260"></canvas></div>
+      <div class="chart-card"><h3>Yaw rate</h3><canvas id="yawChart" width="960" height="260"></canvas></div>
+      <div class="chart-card"><h3>Lateral acceleration</h3><canvas id="ayChart" width="960" height="260"></canvas></div>
+      <div class="chart-card"><h3>ESC corrective yaw moment</h3><canvas id="momentChart" width="960" height="260"></canvas></div>
+      <div class="chart-card"><h3>HPC ↔ ZCU network RTT</h3><canvas id="rttChart" width="960" height="260"></canvas></div>
     </section>
   </main>
   <script src="config.js"></script>
