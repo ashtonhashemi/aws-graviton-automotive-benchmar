@@ -238,6 +238,12 @@ Resources:
             ApiId: !Ref ControlApi
             Path: /benchmark/results/{run_id}
             Method: GET
+        P2TimingStudy:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ControlApi
+            Path: /p2/simulate
+            Method: POST
 
   DashboardBucket:
     Type: AWS::S3::Bucket
