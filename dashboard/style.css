@@ -3,3 +3,5 @@
 .check{flex:0 0 auto;align-items:center}.check input{width:20px;height:20px}
 
 .fleet-actions{display:flex;gap:12px;flex-wrap:wrap}
+
+.status-banner{position:sticky;top:12px;z-index:20;border-radius:12px;padding:12px 14px;margin:0 0 16px;border:1px solid #bbb;background:#fff;font-weight:700;box-shadow:0 4px 18px rgba(0,0,0,.06)}.status-banner.info{border-color:#9ca3af}.status-banner.working{border-color:#d97706;background:#fffbeb}.status-banner.success{border-color:#15803d;background:#f0fdf4}.status-banner.error{border-color:#b91c1c;background:#fef2f2;color:#991b1b}
