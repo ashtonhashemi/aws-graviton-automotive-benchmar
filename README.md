@@ -1,25 +1,91 @@
-# AWS Graviton Automotive Benchmark
+# AWS Graviton FMVSS 126 ESC SIL Benchmark
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/ashtonhashemi/aws-graviton-automotive-benchmar?quickstart=1)
 
-A portfolio-scale engineering lab that compares an **x86_64 EC2 worker** with an **AWS Graviton ARM64 worker** using the same synthetic automotive CAN/DTC processing workload.
+A portfolio-scale automotive SIL project that runs the same **FMVSS No. 126-inspired Electronic Stability Control (ESC) Sine-with-Dwell simulation** on an x86_64 EC2 worker and an AWS Graviton ARM64 worker.
 
-The goal is not merely to launch a Graviton instance. The repository demonstrates infrastructure-as-code, architecture-aware deployment, remote test orchestration, repeatable benchmarking, result capture, performance tuning, and cost-conscious lifecycle control.
+> This is an educational/engineering simulation inspired by the FMVSS No. 126 maneuver and performance metrics. It is **not** an FMVSS compliance or certification test.
 
-## One-click browser VS Code
+## What is simulated
 
-The repository includes a GitHub Codespaces dev container with Python, AWS CLI, AWS SAM CLI, GitHub CLI, `jq`, `make`, AWS Toolkit for VS Code, Python tooling, and YAML support.
+- 80 km/h nominal entry speed.
+- 0.7 Hz Sine-with-Dwell steering maneuver with a 500 ms dwell at the second peak.
+- Simplified Slowly Increasing Steer characterization to estimate the steering-wheel angle corresponding to 0.3 g.
+- Simulated CAN signals for steering angle, vehicle speed, yaw rate, and lateral acceleration.
+- ESC controller that estimates desired yaw rate and commands a corrective yaw moment.
+- Simplified nonlinear bicycle vehicle plant with front/rear lateral tire-force saturation.
+- Simulated Ethernet/cloud telemetry packets at 100 ms intervals.
+- ESC ON/OFF comparison.
+- FMVSS-style yaw-decay checks at 1.0 s and 1.75 s after completion of steer.
+- FMVSS-style lateral-displacement check at 1.07 s after Beginning of Steer.
 
-Click the **Open in GitHub Codespaces** badge above. GitHub will create or resume a browser-based VS Code environment with this repository already checked out.
+The model intentionally allows an **ESC OFF** run to become unstable enough to fail the simulated yaw-decay checks while the **ESC ON** controller stabilizes the same maneuver. CI regression tests enforce this behavior.
 
-In the Codespaces terminal, authenticate to your AWS account:
+## AWS experiment
+
+The identical deterministic SIL workload runs on:
+
+- **x86_64 EC2:** `c7i.large`
+- **ARM64 / AWS Graviton:** `c8g.large`
+
+The dashboard reports both vehicle-level results and compute performance:
+
+- yaw-rate ratio at 1.0 s
+- yaw-rate ratio at 1.75 s
+- lateral displacement at 1.07 s
+- simulated ESC pass/fail
+- wall time
+- CPU time
+- simulation steps/second
+- memory usage
+- ARM/x86 throughput ratio
+- functional-result equality across architectures
+
+## Architecture
+
+```mermaid
+flowchart LR
+  U[Engineer / Browser] --> CF[CloudFront ESC SIL Dashboard]
+  CF --> S3D[(Private S3 Dashboard Bucket)]
+  U -->|Admin token| API[API Gateway]
+  API --> L[Control Lambda]
+  L -->|Start / Stop| X[c7i x86_64 EC2]
+  L -->|Start / Stop| A[c8g Graviton ARM64 EC2]
+  L --> SSM[AWS Systems Manager]
+  SSM --> X
+  SSM --> A
+
+  subgraph SIL[FMVSS 126-inspired SIL workload on each EC2 worker]
+    SWD[Sine-with-Dwell steering] --> CAN[Simulated CAN signals]
+    CAN --> ESC[ESC controller]
+    ESC --> VEH[Vehicle bicycle model]
+    VEH --> CAN
+    VEH --> ETH[Simulated Ethernet telemetry]
+    ETH --> MET[Yaw decay + lateral displacement metrics]
+  end
+
+  X --> SIL
+  A --> SIL
+  X --> S3R[(S3 Results)]
+  A --> S3R
+  L --> DDB[(DynamoDB Run Metadata)]
+  U -->|Poll results| API
+```
+
+Detailed Mermaid source: [`docs/architecture.mmd`](docs/architecture.mmd).
+
+## Browser VS Code / Codespaces
+
+Open the Codespaces badge above. The dev container includes Python, AWS CLI, SAM CLI, GitHub CLI, `jq`, `make`, AWS Toolkit for VS Code, Python tooling, and YAML support.
+
+Authenticate to AWS:
 
 ```bash
 aws configure
 aws sts get-caller-identity
 ```
 
-If your AWS account uses IAM Identity Center instead:
+or with IAM Identity Center:
 
 ```bash
 aws configure sso
@@ -27,139 +93,85 @@ aws sso login
 aws sts get-caller-identity
 ```
 
-Then deploy the complete lab with one command:
+Deploy or update the complete lab:
 
 ```bash
 bash scripts/codespace-deploy.sh
 ```
 
-The helper selects the default VPC and a public-IP-enabled subnet in `us-west-2`, generates and saves a dashboard admin token, then calls the normal SAM deployment script. If your account has no default VPC, set `VPC_ID` and `SUBNET_ID` manually before rerunning it.
+The helper selects the default VPC/public subnet in `us-west-2`, generates/saves the dashboard admin token when needed, deploys the SAM/CloudFormation stack, uploads the latest ESC SIL workload and dashboard, and prints the CloudFront dashboard URL.
 
-## What it does
+## Running the ESC experiment
 
-- Provisions one x86_64 EC2 worker and one ARM64/Graviton worker with AWS SAM / CloudFormation.
-- Uses **AWS Systems Manager**, not SSH, to run the workload; the worker security group has no inbound rules.
-- Provides a CloudFront-hosted dashboard to **start**, **stop**, and benchmark either architecture.
-- Runs the same deterministic CAN/DTC processing workload on both machines.
-- Stores run metadata in DynamoDB and benchmark JSON in S3.
-- Compares wall time, CPU time, records/second, memory, and ARM-to-x86 throughput ratio.
-- Supports `baseline` and `optimized` code paths for a tuning case study.
-- Includes cleanup scripts so expensive compute does not need to stay running.
+1. Open the CloudFront dashboard.
+2. Enter the saved admin token and click **Use configuration**.
+3. Click **Start Both** and wait for x86 and Graviton to report `running`.
+4. Select **ESC ON**, `baseline`, 100000 target simulation steps, and 3 iterations.
+5. Run the ESC simulation and compare vehicle-level and compute results.
+6. Repeat with **ESC OFF** to demonstrate the stability-control effect.
+7. Repeat ESC ON with `optimized` to compare software tuning on both architectures.
+8. Leave **Auto-stop workers** enabled or click **Stop Both** when finished.
 
-## Architecture
-
-```mermaid
-flowchart LR
-  U[Engineer / Browser] --> CF[CloudFront Dashboard]
-  CF --> S3D[(Private S3 Dashboard Bucket)]
-  U -->|X-Admin-Token| API[API Gateway HTTP API]
-  API --> L[Control Lambda]
-  L -->|Start / Stop| X[c7i x86_64 EC2]
-  L -->|Start / Stop| A[c8g Graviton4 ARM64 EC2]
-  L -->|Run command| SSM[AWS Systems Manager]
-  SSM --> X
-  SSM --> A
-  X -->|JSON result| S3R[(S3 Results Bucket)]
-  A -->|JSON result| S3R
-  L --> S3R
-  L --> DDB[(DynamoDB Run Metadata)]
-  U -->|Poll results| API
-```
-
-The Mermaid source is also in [`docs/architecture.mmd`](docs/architecture.mmd).
-
-## Repository layout
-
-```text
-benchmark/          Deterministic CAN/DTC CPU workload
-infra/              AWS SAM / CloudFormation infrastructure
-src/control/        Lambda dashboard/control-plane API
-dashboard/          Static benchmark dashboard
-docs/               Architecture and tuning notes
-scripts/             Deploy, stop, destroy, and Codespaces helpers
-.devcontainer/       Browser VS Code / GitHub Codespaces environment
-.github/workflows/  Smoke test + SAM validation
-```
-
-## Benchmark workload
-
-Each synthetic CAN frame contains representative vehicle signals such as speed, temperature, voltage, and a fault flag. The processor decodes the signals, evaluates fault conditions, computes aggregate values, and produces a deterministic checksum.
-
-The checksum and summary values make it possible to verify that performance improvements did not alter the expected workload behavior.
-
-### Local smoke test
+Retrieve the Codespaces token with:
 
 ```bash
-make test
+cat ~/.aws-graviton-admin-token
 ```
 
-## AWS deployment
-
-Prerequisites: AWS CLI v2, AWS SAM CLI, Python 3, AWS credentials configured locally, a VPC, and a subnet with outbound internet connectivity. GitHub Codespaces users can use the one-click workflow above instead.
-
-Clone the repository and verify your AWS identity:
+Update only dashboard files after frontend changes:
 
 ```bash
-git clone https://github.com/ashtonhashemi/aws-graviton-automotive-benchmar.git
-cd aws-graviton-automotive-benchmar
-aws sts get-caller-identity
+bash scripts/update-dashboard.sh
 ```
 
-If your account still has a default VPC, these commands select it and a subnet that automatically assigns public IPv4 addresses:
-
-```bash
-export AWS_REGION=us-west-2
-export VPC_ID="$(aws ec2 describe-vpcs --region "$AWS_REGION" --filters Name=is-default,Values=true --query 'Vpcs[0].VpcId' --output text)"
-export SUBNET_ID="$(aws ec2 describe-subnets --region "$AWS_REGION" --filters Name=vpc-id,Values="$VPC_ID" Name=map-public-ip-on-launch,Values=true --query 'Subnets[0].SubnetId' --output text)"
-```
-
-If those commands return `None`, provide the IDs of a VPC and subnet that have outbound internet access (public subnet or private subnet through NAT).
-
-Generate a dashboard token and deploy:
-
-```bash
-export ADMIN_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
-printf 'Save this ADMIN_TOKEN: %s\n' "$ADMIN_TOKEN"
-bash scripts/deploy.sh
-```
-
-The script runs `sam build` and `sam deploy`, uploads `benchmark.py` to the private results bucket, uploads the dashboard to its private S3 origin, creates the dashboard configuration, and prints the CloudFront URL and API URL.
-
-**Cost control:** the workers bootstrap once and then shut themselves down. Benchmark runs also default to auto-stop after uploading results. You can stop both at any time from the dashboard or:
+Stop compute:
 
 ```bash
 bash scripts/stop-workers.sh
 ```
 
-Delete the entire lab with:
+Delete the entire lab:
 
 ```bash
 bash scripts/destroy.sh
 ```
 
-## Running a comparison
+## Repository layout
 
-1. Open the CloudFront dashboard printed by the deployment script.
-2. Enter the `ADMIN_TOKEN` used during deployment. It is held only in browser session storage.
-3. Click **Start Both**.
-4. Wait until both show `running` and allow Systems Manager a short time to reconnect.
-5. Select `baseline` or `optimized`, workload size, and iteration count.
-6. Run the benchmark and wait for both JSON results.
-7. Compare throughput and wall time.
-8. Stop both workers.
+```text
+benchmark/          FMVSS 126-inspired ESC SIL simulation
+infra/              AWS SAM / CloudFormation infrastructure
+src/control/        Lambda dashboard/control-plane API
+dashboard/          ESC SIL + compute comparison dashboard
+docs/               Architecture and tuning notes
+tests/              Vehicle-level regression checks
+scripts/             Deploy, update, stop, destroy, Codespaces helpers
+.devcontainer/       Browser VS Code environment
+.github/workflows/  Functional smoke tests + SAM validation
+```
 
-## Tuning study
+## Functional regression
 
-The first optimization is intentionally understandable rather than exotic: the optimized path removes temporary lists, retains integer values in the hot loop, reduces conversions, and minimizes repeated work. See [`docs/tuning.md`](docs/tuning.md) for the experiment matrix and next steps.
+```bash
+make test
+```
 
-## Security scope
+The regression requires:
 
-This is a **lab/portfolio control plane**, not a production fleet manager. The API uses a shared admin token supplied as a `NoEcho` CloudFormation parameter and never committed to the repository. EC2 workers accept no inbound connections and are controlled with SSM. For a production implementation, replace the shared token with Cognito/OIDC authorization and place private workers behind VPC endpoints/NAT as appropriate.
+- ESC ON stability at 1.0 s: pass
+- ESC ON stability at 1.75 s: pass
+- ESC ON responsiveness: pass
+- ESC OFF overall simulated result: fail
+- baseline and optimized modes: identical vehicle-level output
 
-## Suggested portfolio result statement
+## FMVSS No. 126 basis
 
-> Designed an AWS Graviton benchmarking environment that deploys equivalent x86_64 and ARM64 compute workers, remotely orchestrates automotive CAN/DTC workloads through Systems Manager, captures performance results in S3/DynamoDB, and quantifies architecture and software-tuning tradeoffs through a web dashboard.
+The project uses selected concepts from the NHTSA FMVSS No. 126 Sine-with-Dwell procedure: the 0.7 Hz input, 500 ms dwell, approximately 80 km/h entry condition, yaw-rate decay criteria, and lateral-displacement responsiveness metric. Real FMVSS testing includes detailed vehicle preparation, instrumentation, filtering, Slowly Increasing Steer runs, left/right test series, steering-amplitude progression, equipment requirements, and other regulatory provisions that this simplified SIL model does not reproduce.
 
-## Repository
+## Security and cost scope
 
-This project is published at `ashtonhashemi/aws-graviton-automotive-benchmar` (repository name as currently created on GitHub).
+This is a lab/portfolio control plane, not a production fleet manager. EC2 workers have no inbound rules and are controlled through Systems Manager. The API uses a lab-only shared token stored as a `NoEcho` CloudFormation parameter. Workers can auto-stop after a run to reduce compute cost.
+
+## Portfolio statement
+
+> Developed an AWS-hosted ESC Software-in-the-Loop benchmark based on the FMVSS No. 126 Sine-with-Dwell maneuver, modeling CAN sensor traffic, closed-loop yaw control, vehicle dynamics, Ethernet telemetry, regulatory-style stability metrics, and identical execution on x86_64 and AWS Graviton ARM64 compute.
