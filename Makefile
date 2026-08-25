@@ -8,6 +8,7 @@ test:
 	python3 diagnostic_timing/p2_latency_sim.py --profile nominal --samples 5000 --output /tmp/p2-nominal.json
 	python3 diagnostic_timing/p2_latency_sim.py --profile near_limit --samples 5000 --output /tmp/p2-near-limit.json
 	python3 tests/test_p2_service.py
+	bash tests/test_p2_measured.sh
 
 package:
 	zip -r aws-graviton-automotive-benchmark.zip . -x '.git/*' '.aws-sam/*'
