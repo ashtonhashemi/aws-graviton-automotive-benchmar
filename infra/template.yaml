@@ -199,6 +199,7 @@ Resources:
               Action:
                 - ssm:SendCommand
                 - ssm:GetCommandInvocation
+                - ssm:DescribeInstanceInformation
               Resource: '*'
             - Effect: Allow
               Action:
