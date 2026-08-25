@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: AWS Graviton vs x86 automotive CAN/DTC benchmark lab
+Description: Distributed ESC SIL lab with Graviton HPC and x86 ZCU over real VPC UDP Ethernet
 
 Parameters:
   VpcId:
@@ -68,12 +68,22 @@ Resources:
   WorkerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: No-inbound benchmark worker security group
+      GroupDescription: Distributed ESC SIL workers; no public inbound access
       VpcId: !Ref VpcId
       SecurityGroupEgress:
         - IpProtocol: '-1'
           CidrIp: 0.0.0.0/0
-          Description: Outbound access for SSM, S3, and package bootstrap
+          Description: Outbound access for SSM, S3, and VPC communication
+
+  EscUdpIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref WorkerSecurityGroup
+      IpProtocol: udp
+      FromPort: 5005
+      ToPort: 5005
+      SourceSecurityGroupId: !Ref WorkerSecurityGroup
+      Description: Real 100 Hz ESC sensor and command traffic between HPC and ZCU
 
   WorkerRole:
     Type: AWS::IAM::Role
@@ -114,7 +124,9 @@ Resources:
       InstanceInitiatedShutdownBehavior: stop
       Tags:
         - Key: Name
-          Value: graviton-benchmark-x86
+          Value: esc-zcu-x86
+        - Key: Role
+          Value: ZCU-ESC
         - Key: Project
           Value: aws-graviton-automotive-benchmark
       UserData:
@@ -138,7 +150,9 @@ Resources:
       InstanceInitiatedShutdownBehavior: stop
       Tags:
         - Key: Name
-          Value: graviton-benchmark-arm64
+          Value: vehicle-hpc-graviton
+        - Key: Role
+          Value: HPC-Vehicle-SIL
         - Key: Project
           Value: aws-graviton-automotive-benchmark
       UserData:
@@ -302,5 +316,9 @@ Outputs:
     Value: !Ref ResultsTable
   X86InstanceId:
     Value: !Ref X86Worker
+  X86ZcuPrivateIp:
+    Value: !GetAtt X86Worker.PrivateIp
   ArmInstanceId:
     Value: !Ref ArmWorker
+  GravitonHpcPrivateIp:
+    Value: !GetAtt ArmWorker.PrivateIp
