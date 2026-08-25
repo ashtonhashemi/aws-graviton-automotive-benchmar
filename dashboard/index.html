@@ -11,7 +11,7 @@
     <header>
       <p class="eyebrow">Automotive systems engineering · AWS</p>
       <h1>AWS Automotive Systems Lab</h1>
-      <p>Two engineering experiments: a distributed ESC SIL control loop over real VPC Ethernet, and an OBDonUDS P2Tester architecture timing trade study.</p>
+      <p>Two engineering experiments: a distributed ESC SIL control loop over real VPC Ethernet, and an OBDonUDS P2Tester architecture timing study with both modeled and measured AWS modes.</p>
     </header>
 
     <div id="globalStatus" class="status-banner info" role="status" aria-live="polite">Loading dashboard configuration…</div>
@@ -96,68 +96,174 @@
 
     <div id="p2Lab" class="lab-view" hidden>
       <section class="panel lab-intro">
-        <p class="eyebrow">Experiment 02 · architecture timing model</p>
-        <h2>OBDonUDS P2Tester — Distributed vs Zonal</h2>
-        <p>Compare tester-to-response timing for a conventional diagnostic gateway + CAN-FD path, transparent zonal Ethernet routing, and an HPC diagnostic-proxy architecture. This mode is an engineering Monte Carlo model executed in AWS Lambda; its delay distributions are assumptions, not normative SAE/ISO values.</p>
+        <p class="eyebrow">Experiment 02 · OBDonUDS architecture timing</p>
+        <h2>P2Tester — Distributed vs Zonal</h2>
+        <p>Compare tester-to-response timing for a conventional distributed path, transparent zonal Ethernet routing, and an HPC diagnostic-proxy architecture. Use the model for rapid trade studies or the measured mode for real multi-node AWS VPC timing.</p>
       </section>
 
-      <section class="panel">
-        <h2>Timing Study Configuration</h2>
-        <div class="form-row">
-          <label>Architecture
-            <select id="p2Architecture">
-              <option value="all">Compare all three</option>
-              <option value="distributed_canfd">Distributed gateway + CAN-FD</option>
-              <option value="zonal_transparent">Zonal transparent Ethernet</option>
-              <option value="zonal_hpc_proxy">Zonal HPC diagnostic proxy</option>
-            </select>
-          </label>
-          <label>Target ECU timing profile
-            <select id="p2Profile">
-              <option value="nominal">Nominal ECU — 20 ms mean</option>
-              <option value="near_limit">Near-limit ECU — 38 ms mean</option>
-              <option value="custom">Custom</option>
-            </select>
-          </label>
-          <label>P2Tester budget (ms)<input id="p2Budget" type="number" min="1" max="5000" step="1" value="50" /></label>
-          <label>Monte Carlo samples<input id="p2Samples" type="number" min="100" max="100000" step="1000" value="20000" /></label>
-        </div>
-
-        <div id="p2Custom" class="form-row custom-row" hidden>
-          <label>ECU mean (ms)<input id="p2Mean" type="number" step="0.1" value="38" /></label>
-          <label>ECU σ (ms)<input id="p2Sigma" type="number" step="0.1" value="5" /></label>
-          <label>ECU minimum (ms)<input id="p2Min" type="number" step="0.1" value="20" /></label>
-          <label>ECU maximum (ms)<input id="p2Max" type="number" step="0.1" value="49" /></label>
-        </div>
-
-        <button id="runP2">Run P2Tester timing study</button>
-        <p id="p2Status">No timing study running.</p>
+      <section class="panel mode-panel">
+        <label>Study mode
+          <select id="p2Mode">
+            <option value="model">Timing model — AWS Lambda Monte Carlo</option>
+            <option value="measured">Measured AWS — four EC2 nodes</option>
+          </select>
+        </label>
       </section>
 
-      <section class="panel">
-        <h2>P2Tester Results</h2>
-        <table>
-          <thead><tr><th>Architecture</th><th>Mean</th><th>P50</th><th>P95</th><th>P99</th><th>Max</th><th>&gt; Budget</th><th>P99 Result</th></tr></thead>
-          <tbody id="p2Results"><tr><td colspan="8">No results yet.</td></tr></tbody>
-        </table>
-        <p id="p2Conclusion"></p>
-      </section>
+      <div id="p2ModelView">
+        <section class="panel model-note">
+          <strong>Model mode</strong>
+          <p>Monte Carlo architecture trade study. Delay distributions are explicit engineering assumptions, not measured vehicle-network values and not normative SAE/ISO timing values.</p>
+        </section>
 
-      <section class="panel">
-        <h2>Mean Latency Budget Breakdown</h2>
-        <div id="p2Breakdown" class="breakdown-grid"><p>No results yet.</p></div>
-      </section>
+        <section class="panel">
+          <h2>Timing Study Configuration</h2>
+          <div class="form-row">
+            <label>Architecture
+              <select id="p2Architecture">
+                <option value="all">Compare all three</option>
+                <option value="distributed_canfd">Distributed gateway + CAN-FD</option>
+                <option value="zonal_transparent">Zonal transparent Ethernet</option>
+                <option value="zonal_hpc_proxy">Zonal HPC diagnostic proxy</option>
+              </select>
+            </label>
+            <label>Target ECU timing profile
+              <select id="p2Profile">
+                <option value="nominal">Nominal ECU — 20 ms mean</option>
+                <option value="near_limit">Near-limit ECU — 38 ms mean</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
+            <label>P2Tester budget (ms)<input id="p2Budget" type="number" min="1" max="5000" step="1" value="50" /></label>
+            <label>Monte Carlo samples<input id="p2Samples" type="number" min="100" max="100000" step="1000" value="20000" /></label>
+          </div>
 
-      <section class="panel traces">
-        <h2>P2Tester Response-Time Distribution</h2>
-        <p>The vertical reference line is the selected P2Tester budget. Histograms show the modeled end-to-end tester elapsed time.</p>
-        <div id="p2Histograms"></div>
-      </section>
+          <div id="p2Custom" class="form-row custom-row" hidden>
+            <label>ECU mean (ms)<input id="p2Mean" type="number" step="0.1" value="38" /></label>
+            <label>ECU σ (ms)<input id="p2Sigma" type="number" step="0.1" value="5" /></label>
+            <label>ECU minimum (ms)<input id="p2Min" type="number" step="0.1" value="20" /></label>
+            <label>ECU maximum (ms)<input id="p2Max" type="number" step="0.1" value="49" /></label>
+          </div>
 
-      <section class="panel model-note">
-        <strong>Current mode: model, not measured AWS vehicle-network latency.</strong>
-        <p>The next implementation phase will add real tester/HPC/zone/target processes with timestamps at each boundary. That measured mode will sit beside this model rather than replace it.</p>
-      </section>
+          <button id="runP2">Run modeled P2Tester study</button>
+          <p id="p2Status">No timing study running.</p>
+        </section>
+
+        <section class="panel">
+          <h2>Modeled P2Tester Results</h2>
+          <table>
+            <thead><tr><th>Architecture</th><th>Mean</th><th>P50</th><th>P95</th><th>P99</th><th>Max</th><th>&gt; Budget</th><th>P99 Result</th></tr></thead>
+            <tbody id="p2Results"><tr><td colspan="8">No results yet.</td></tr></tbody>
+          </table>
+          <p id="p2Conclusion"></p>
+        </section>
+
+        <section class="panel">
+          <h2>Mean Latency Budget Breakdown</h2>
+          <div id="p2Breakdown" class="breakdown-grid"><p>No results yet.</p></div>
+        </section>
+
+        <section class="panel traces">
+          <h2>Modeled P2Tester Response-Time Distribution</h2>
+          <p>The vertical reference line is the selected P2Tester budget.</p>
+          <div id="p2Histograms"></div>
+        </section>
+      </div>
+
+      <div id="p2MeasuredView" hidden>
+        <section class="panel measured-note">
+          <strong>Measured AWS mode</strong>
+          <p>P2Tester is measured end-to-end on the external Tester EC2 monotonic clock over real persistent TCP/IPv4 inside the VPC. Target ECU processing is a controlled test stimulus. Per-node processing is measured locally; cross-host wall clocks are recorded for observability but are not used to calculate the P2Tester result.</p>
+        </section>
+
+        <section class="panel fleet-actions">
+          <button id="startP2Nodes">Start Tester + HPC + Zone + Target</button>
+          <button id="stopP2Nodes">Stop P2 nodes</button>
+          <button id="refreshP2Nodes">Refresh P2 Status</button>
+        </section>
+
+        <section class="p2-node-grid">
+          <article class="panel worker">
+            <p class="eyebrow">External client</p><h2>Tester EC2</h2>
+            <p id="p2TesterState">Unknown</p><p id="p2TesterType">—</p>
+          </article>
+          <article class="panel worker">
+            <p class="eyebrow">Central compute</p><h2>HPC EC2</h2>
+            <p id="p2HpcState">Unknown</p><p id="p2HpcType">—</p>
+          </article>
+          <article class="panel worker">
+            <p class="eyebrow">Zonal gateway</p><h2>Zone Controller EC2</h2>
+            <p id="p2ZoneState">Unknown</p><p id="p2ZoneType">—</p>
+          </article>
+          <article class="panel worker">
+            <p class="eyebrow">Diagnostic server</p><h2>Target ECU EC2</h2>
+            <p id="p2TargetState">Unknown</p><p id="p2TargetType">—</p>
+          </article>
+        </section>
+
+        <section class="panel architecture-paths">
+          <h2>Measured Paths</h2>
+          <div class="path-row"><strong>Distributed</strong><span>Tester → Zone → Target</span></div>
+          <div class="path-row"><strong>Zonal transparent</strong><span>Tester → HPC → Zone → Target</span></div>
+          <div class="path-row"><strong>Zonal proxy</strong><span>Tester → HPC terminate/reissue → Zone → Target</span></div>
+          <p class="small-note">The measured transport is real AWS VPC TCP. This research harness uses UDS-style request/response framing; it is not a complete ISO 13400 DoIP implementation.</p>
+        </section>
+
+        <section class="panel">
+          <h2>Measured Test Configuration</h2>
+          <div class="form-row">
+            <label>Architecture
+              <select id="mp2Architecture">
+                <option value="all">Measure all three</option>
+                <option value="distributed_canfd">Distributed path</option>
+                <option value="zonal_transparent">Zonal transparent</option>
+                <option value="zonal_hpc_proxy">Zonal HPC proxy</option>
+              </select>
+            </label>
+            <label>Target ECU processing profile
+              <select id="mp2Profile">
+                <option value="nominal">Nominal — 20 ms mean</option>
+                <option value="near_limit">Near-limit — 38 ms mean</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
+            <label>P2Tester budget (ms)<input id="mp2Budget" type="number" min="1" max="5000" step="1" value="50" /></label>
+            <label>Requests per architecture<input id="mp2Samples" type="number" min="10" max="5000" step="10" value="500" /></label>
+            <label>HPC proxy controlled workload (ms)<input id="mp2ProxyWork" type="number" min="0" max="50" step="0.1" value="0" /></label>
+            <label class="check"><span>Auto-stop all P2 nodes after run</span><input id="mp2AutoStop" type="checkbox" checked /></label>
+          </div>
+
+          <div id="mp2Custom" class="form-row custom-row" hidden>
+            <label>ECU mean (ms)<input id="mp2Mean" type="number" step="0.1" value="38" /></label>
+            <label>ECU σ (ms)<input id="mp2Sigma" type="number" step="0.1" value="5" /></label>
+            <label>ECU minimum (ms)<input id="mp2Min" type="number" step="0.1" value="20" /></label>
+            <label>ECU maximum (ms)<input id="mp2Max" type="number" step="0.1" value="49" /></label>
+          </div>
+
+          <button id="runP2Measured">Run measured AWS P2Tester test</button>
+          <p id="p2MeasuredRunStatus">Start all four nodes and refresh until each shows SSM Online.</p>
+        </section>
+
+        <section class="panel">
+          <h2>Measured P2Tester Results</h2>
+          <table>
+            <thead><tr><th>Architecture</th><th>Mean</th><th>P50</th><th>P95</th><th>P99</th><th>Max</th><th>&gt; Budget</th><th>P99 Result</th></tr></thead>
+            <tbody id="p2MeasuredResults"><tr><td colspan="8">No measured results yet.</td></tr></tbody>
+          </table>
+          <p id="p2MeasuredConclusion"></p>
+        </section>
+
+        <section class="panel">
+          <h2>Measured Mean Latency Breakdown</h2>
+          <div id="p2MeasuredBreakdown" class="breakdown-grid"><p>No measured results yet.</p></div>
+        </section>
+
+        <section class="panel traces">
+          <h2>Measured P2Tester Response-Time Distribution</h2>
+          <p>These histograms are built from the actual end-to-end samples recorded by the Tester EC2.</p>
+          <div id="p2MeasuredHistograms"></div>
+        </section>
+      </div>
     </div>
   </main>
   <script src="config.js"></script>
