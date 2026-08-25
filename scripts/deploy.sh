@@ -34,10 +34,17 @@ DIST_ID="$(output DashboardDistributionId)"
 DASHBOARD_URL="$(output DashboardUrl)"
 ZCU_IP="$(output X86ZcuPrivateIp)"
 HPC_IP="$(output GravitonHpcPrivateIp)"
+P2_TESTER_IP="$(output P2TesterPrivateIp)"
+P2_HPC_IP="$(output P2HpcPrivateIp)"
+P2_ZONE_IP="$(output P2ZonePrivateIp)"
+P2_TARGET_IP="$(output P2TargetPrivateIp)"
 
-# Runtime assets fetched by SSM onto the two EC2 nodes.
+# Runtime assets fetched by SSM onto EC2 nodes.
 aws s3 cp network/zcu_esc.py "s3://$RESULTS_BUCKET/assets/zcu_esc.py" --region "$REGION"
 aws s3 cp network/hpc_vehicle.py "s3://$RESULTS_BUCKET/assets/hpc_vehicle.py" --region "$REGION"
+aws s3 cp diagnostic_timing/aws_measured/p2_target_ecu.py "s3://$RESULTS_BUCKET/assets/p2_target_ecu.py" --region "$REGION"
+aws s3 cp diagnostic_timing/aws_measured/p2_relay.py "s3://$RESULTS_BUCKET/assets/p2_relay.py" --region "$REGION"
+aws s3 cp diagnostic_timing/aws_measured/p2_tester.py "s3://$RESULTS_BUCKET/assets/p2_tester.py" --region "$REGION"
 # Keep the standalone single-process model available for local/reference testing.
 aws s3 cp benchmark/benchmark.py "s3://$RESULTS_BUCKET/assets/benchmark.py" --region "$REGION"
 
@@ -73,12 +80,17 @@ aws cloudfront wait invalidation-completed --distribution-id "$DIST_ID" --id "$I
 
 cat <<EOF
 Deployment complete.
-Dashboard:    $DASHBOARD_URL
-API:          $API_URL
-Graviton HPC: $HPC_IP
-x86 ZCU:      $ZCU_IP
-Ethernet:     UDP/5005 over private VPC networking
+Dashboard:       $DASHBOARD_URL
+API:             $API_URL
+ESC Graviton HPC: $HPC_IP
+ESC x86 ZCU:      $ZCU_IP
+P2 Tester:        $P2_TESTER_IP
+P2 HPC:           $P2_HPC_IP
+P2 Zone:          $P2_ZONE_IP
+P2 Target ECU:    $P2_TARGET_IP
+ESC transport:    UDP/5005 over private VPC networking
+P2 transport:     TCP/13400 over private VPC networking
 
 Open the dashboard and enter the ADMIN_TOKEN you supplied at deploy time.
-IMPORTANT: stop both EC2 nodes when not running the SIL experiment.
+IMPORTANT: all EC2 lab nodes are intended to remain stopped when experiments are not running.
 EOF
