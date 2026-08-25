@@ -15,6 +15,7 @@ BUCKET = os.environ["RESULTS_BUCKET"]
 X86_ID = os.environ["X86_INSTANCE_ID"]
 ARM_ID = os.environ["ARM_INSTANCE_ID"]
 ADMIN_TOKEN = os.environ["ADMIN_TOKEN"]
+UDP_PORT = 5005
 
 
 def _json_default(value):
@@ -36,7 +37,7 @@ def authorized(event):
     return headers.get("x-admin-token") == ADMIN_TOKEN
 
 
-def state(instance_id):
+def state(instance_id, role):
     r = EC2.describe_instances(InstanceIds=[instance_id])
     i = r["Reservations"][0]["Instances"][0]
     return {
@@ -44,6 +45,8 @@ def state(instance_id):
         "state": i["State"]["Name"],
         "instance_type": i["InstanceType"],
         "architecture": i["Architecture"],
+        "private_ip": i.get("PrivateIpAddress"),
+        "role": role,
     }
 
 
@@ -56,13 +59,27 @@ def start_stop(instance_id, action):
         raise ValueError("action must be start or stop")
 
 
-def command_for(run_id, arch, records, iterations, mode, esc, auto_stop):
-    out = f"/tmp/{run_id}-{arch}.json"
+def zcu_commands(run_id, esc, auto_stop):
+    out = f"/tmp/{run_id}-zcu.json"
     commands = [
         "set -euo pipefail",
-        f"aws s3 cp s3://{BUCKET}/assets/benchmark.py /tmp/benchmark.py",
-        f"python3 /tmp/benchmark.py --records {records} --iterations {iterations} --mode {mode} --esc {esc} --output {out}",
-        f"aws s3 cp {out} s3://{BUCKET}/results/{run_id}/{arch}.json",
+        f"aws s3 cp s3://{BUCKET}/assets/zcu_esc.py /tmp/zcu_esc.py",
+        f"python3 /tmp/zcu_esc.py --port {UDP_PORT} --esc {esc} --output {out}",
+        f"aws s3 cp {out} s3://{BUCKET}/results/{run_id}/zcu.json",
+    ]
+    if auto_stop:
+        commands.append("sudo shutdown -h now")
+    return commands
+
+
+def hpc_commands(run_id, zcu_ip, esc, auto_stop):
+    out = f"/tmp/{run_id}-hpc.json"
+    commands = [
+        "set -euo pipefail",
+        f"aws s3 cp s3://{BUCKET}/assets/hpc_vehicle.py /tmp/hpc_vehicle.py",
+        "sleep 2",
+        f"python3 /tmp/hpc_vehicle.py --zcu-ip {zcu_ip} --port {UDP_PORT} --esc {esc} --realtime --output {out}",
+        f"aws s3 cp {out} s3://{BUCKET}/results/{run_id}/hpc.json",
     ]
     if auto_stop:
         commands.append("sudo shutdown -h now")
@@ -70,46 +87,55 @@ def command_for(run_id, arch, records, iterations, mode, esc, auto_stop):
 
 
 def run_benchmark(body):
-    records = int(body.get("records", 100000))
-    iterations = int(body.get("iterations", 3))
-    mode = body.get("mode", "baseline")
     esc = body.get("esc", "on")
     auto_stop = bool(body.get("auto_stop", True))
-    if not (
-        1 <= records <= 5_000_000
-        and 1 <= iterations <= 20
-        and mode in ("baseline", "optimized")
-        and esc in ("on", "off")
-    ):
-        raise ValueError("invalid benchmark parameters")
+    if esc not in ("on", "off"):
+        raise ValueError("esc must be on or off")
 
-    states = {"x86_64": state(X86_ID), "arm64": state(ARM_ID)}
-    if any(v["state"] != "running" for v in states.values()):
-        return response(409, {"error": "Both instances must be running", "instances": states})
+    zcu = state(X86_ID, "x86 EC2 ZCU / ESC controller")
+    hpc = state(ARM_ID, "Graviton HPC / vehicle and FMVSS maneuver simulator")
+    states = {"zcu": zcu, "hpc": hpc}
+    if zcu["state"] != "running" or hpc["state"] != "running":
+        return response(409, {"error": "Both the Graviton HPC and x86 ZCU must be running", "instances": states})
+    if not zcu.get("private_ip"):
+        return response(409, {"error": "ZCU private VPC IP is unavailable", "instances": states})
 
     run_id = str(uuid.uuid4())
-    commands = {}
-    for arch, iid in (("x86_64", X86_ID), ("arm64", ARM_ID)):
-        r = SSM.send_command(
-            InstanceIds=[iid],
-            DocumentName="AWS-RunShellScript",
-            Parameters={"commands": command_for(run_id, arch, records, iterations, mode, esc, auto_stop)},
-            TimeoutSeconds=3600,
-        )
-        commands[arch] = r["Command"]["CommandId"]
+
+    zcu_cmd = SSM.send_command(
+        InstanceIds=[X86_ID],
+        DocumentName="AWS-RunShellScript",
+        Parameters={"commands": zcu_commands(run_id, esc, auto_stop)},
+        TimeoutSeconds=600,
+    )["Command"]["CommandId"]
+
+    hpc_cmd = SSM.send_command(
+        InstanceIds=[ARM_ID],
+        DocumentName="AWS-RunShellScript",
+        Parameters={"commands": hpc_commands(run_id, zcu["private_ip"], esc, auto_stop)},
+        TimeoutSeconds=600,
+    )["Command"]["CommandId"]
 
     DDB.put_item(Item={
         "run_id": run_id,
         "created_at": int(time.time()),
-        "records": records,
-        "iterations": iterations,
-        "mode": mode,
         "esc": esc,
         "auto_stop": auto_stop,
-        "x86_command_id": commands["x86_64"],
-        "arm_command_id": commands["arm64"],
+        "transport": "UDP/IPv4 over AWS VPC",
+        "udp_port": UDP_PORT,
+        "zcu_instance_id": X86_ID,
+        "zcu_private_ip": zcu["private_ip"],
+        "hpc_instance_id": ARM_ID,
+        "zcu_command_id": zcu_cmd,
+        "hpc_command_id": hpc_cmd,
     })
-    return response(202, {"run_id": run_id, "commands": commands})
+    return response(202, {
+        "run_id": run_id,
+        "transport": "real UDP/IPv4 over AWS VPC Ethernet",
+        "zcu_private_ip": zcu["private_ip"],
+        "udp_port": UDP_PORT,
+        "commands": {"zcu": zcu_cmd, "hpc": hpc_cmd},
+    })
 
 
 def get_json(key):
@@ -128,17 +154,20 @@ def get_result(run_id):
     item = DDB.get_item(Key={"run_id": run_id}).get("Item")
     if not item:
         return response(404, {"error": "run not found"})
-    x86 = get_json(f"results/{run_id}/x86_64.json")
-    arm = get_json(f"results/{run_id}/arm64.json")
-    body = {"run": item, "x86_64": x86, "arm64": arm, "complete": bool(x86 and arm)}
-    if x86 and arm:
-        xt = float(x86["throughput_records_per_sec"])
-        at = float(arm["throughput_records_per_sec"])
-        functional_match = x86.get("result") == arm.get("result")
-        body["comparison"] = {
-            "arm_vs_x86_throughput_ratio": round(at / xt, 3) if xt else None,
-            "faster_architecture": "arm64" if at > xt else "x86_64",
-            "functional_results_match": functional_match,
+    hpc = get_json(f"results/{run_id}/hpc.json")
+    zcu = get_json(f"results/{run_id}/zcu.json")
+    body = {"run": item, "hpc": hpc, "zcu": zcu, "complete": bool(hpc and zcu)}
+    if hpc and zcu:
+        body["network"] = {
+            "transport": hpc.get("transport"),
+            "packets_sent": hpc.get("packets_sent"),
+            "packets_received": hpc.get("packets_received"),
+            "packets_lost": hpc.get("packets_lost"),
+            "packet_loss_pct": hpc.get("packet_loss_pct"),
+            "rtt_ms_mean": hpc.get("network_rtt_ms_mean"),
+            "rtt_ms_p95": hpc.get("network_rtt_ms_p95"),
+            "rtt_ms_max": hpc.get("network_rtt_ms_max"),
+            "deadline_misses": hpc.get("control_deadline_misses"),
         }
     return response(200, body)
 
@@ -151,7 +180,10 @@ def handler(event, context):
     path = event.get("rawPath", "")
     try:
         if method == "GET" and path == "/status":
-            return response(200, {"x86_64": state(X86_ID), "arm64": state(ARM_ID)})
+            return response(200, {
+                "x86_64": state(X86_ID, "ZCU / ESC controller"),
+                "arm64": state(ARM_ID, "HPC / vehicle simulator"),
+            })
 
         if method == "POST" and path.startswith("/instances/"):
             parts = path.strip("/").split("/")
