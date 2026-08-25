@@ -3,7 +3,8 @@
 
 The network path is real TCP/IPv4 over the AWS VPC. ECU processing time is a
 controlled test stimulus so architecture/network overhead can be measured
-separately from target-server work.
+separately from target-server work. Each sequence number maps to the same
+target-delay sample across architectures for paired path comparisons.
 """
 from __future__ import annotations
 
@@ -38,7 +39,6 @@ def main() -> None:
     if args.min_ms < 0 or args.max_ms < args.min_ms or args.sigma_ms < 0:
         raise SystemExit("invalid target ECU timing parameters")
 
-    rng = random.Random(args.seed)
     stop = False
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -72,9 +72,11 @@ def main() -> None:
                         stop = True
                         break
 
+                    sequence = int(request.get("sequence", 0))
+                    sample_rng = random.Random(args.seed + sequence)
                     processing_start_ns = time.perf_counter_ns()
                     configured_delay_ms = clamp(
-                        rng.gauss(args.mean_ms, args.sigma_ms), args.min_ms, args.max_ms
+                        sample_rng.gauss(args.mean_ms, args.sigma_ms), args.min_ms, args.max_ms
                     )
                     if configured_delay_ms:
                         time.sleep(configured_delay_ms / 1000.0)
