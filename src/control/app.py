@@ -7,6 +7,7 @@ import uuid
 
 import boto3
 from botocore.exceptions import ClientError
+from p2_sim import run_study
 
 EC2 = boto3.client("ec2")
 SSM = boto3.client("ssm")
@@ -36,6 +37,13 @@ def response(code, body):
 def authorized(event):
     headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}
     return headers.get("x-admin-token") == ADMIN_TOKEN
+
+
+def request_json(event):
+    raw_body = event.get("body") or "{}"
+    if event.get("isBase64Encoded"):
+        raw_body = base64.b64decode(raw_body).decode("utf-8")
+    return json.loads(raw_body)
 
 
 def ssm_statuses():
@@ -228,13 +236,13 @@ def handler(event, context):
             return response(202, {"arch": arch, "action": action})
 
         if method == "POST" and path == "/benchmark/run":
-            raw_body = event.get("body") or "{}"
-            if event.get("isBase64Encoded"):
-                raw_body = base64.b64decode(raw_body).decode("utf-8")
-            return run_benchmark(json.loads(raw_body))
+            return run_benchmark(request_json(event))
 
         if method == "GET" and path.startswith("/benchmark/results/"):
             return get_result(path.rsplit("/", 1)[-1])
+
+        if method == "POST" and path == "/p2/simulate":
+            return response(200, run_study(request_json(event)))
 
         return response(404, {"error": "not found"})
     except ValueError as exc:
