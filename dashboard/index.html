@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>AWS Graviton Automotive Benchmark</title>
+  <title>FMVSS 126 ESC SIL — Graviton vs x86</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <main>
     <header>
-      <p class="eyebrow">Automotive compute benchmark</p>
-      <h1>AWS Graviton vs x86_64</h1>
-      <p>Start the two EC2 workers, run the same CAN/DTC workload, compare results, then stop the workers.</p>
+      <p class="eyebrow">Automotive SIL · AWS compute benchmark</p>
+      <h1>FMVSS 126 ESC SIL</h1>
+      <p>Run the same Sine-with-Dwell stability-control simulation on x86_64 EC2 and AWS Graviton, with simulated CAN control signals and Ethernet telemetry.</p>
     </header>
 
     <div id="globalStatus" class="status-banner info" role="status" aria-live="polite">Loading dashboard configuration…</div>
@@ -40,24 +40,34 @@
     </section>
 
     <section class="panel">
-      <h2>Benchmark</h2>
+      <h2>ESC Sine-with-Dwell Test</h2>
+      <p>Illustrative SIL model based on the FMVSS No. 126 maneuver and pass/fail metrics. This is not a certification test.</p>
       <div class="form-row">
-        <label>Records <input id="records" type="number" min="1" max="5000000" value="500000" /></label>
-        <label>Iterations <input id="iterations" type="number" min="1" max="20" value="5" /></label>
-        <label>Mode <select id="mode"><option value="baseline">Baseline</option><option value="optimized">Optimized</option></select></label>
+        <label>Target simulation steps <input id="records" type="number" min="1" max="5000000" value="100000" /></label>
+        <label>Iterations <input id="iterations" type="number" min="1" max="20" value="3" /></label>
+        <label>ESC state <select id="esc"><option value="on">ESC ON</option><option value="off">ESC OFF</option></select></label>
+        <label>Compute mode <select id="mode"><option value="baseline">Baseline</option><option value="optimized">Optimized</option></select></label>
         <label class="check"><span>Auto-stop workers</span><input id="autoStop" type="checkbox" checked /></label>
       </div>
-      <button id="run">Run benchmark</button>
-      <p id="runStatus">No benchmark running.</p>
+      <button id="run">Run ESC simulation</button>
+      <p id="runStatus">No simulation running.</p>
     </section>
 
     <section class="panel">
-      <h2>Results</h2>
+      <h2>FMVSS-style Results</h2>
       <table>
-        <thead><tr><th>Architecture</th><th>Wall time</th><th>Throughput</th><th>CPU time</th><th>Max RSS</th></tr></thead>
+        <thead><tr><th>Architecture</th><th>Yaw @ 1.0 s</th><th>Yaw @ 1.75 s</th><th>Lateral displacement</th><th>ESC result</th></tr></thead>
         <tbody id="results"><tr><td colspan="5">No results yet.</td></tr></tbody>
       </table>
       <p id="comparison"></p>
+    </section>
+
+    <section class="panel">
+      <h2>Compute Performance</h2>
+      <table>
+        <thead><tr><th>Architecture</th><th>Wall time</th><th>Simulation steps/s</th><th>CPU time</th><th>Max RSS</th></tr></thead>
+        <tbody id="computeResults"><tr><td colspan="5">No results yet.</td></tr></tbody>
+      </table>
     </section>
   </main>
   <script src="config.js"></script>
