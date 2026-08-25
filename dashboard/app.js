@@ -4,6 +4,7 @@ const token = $('token');
 const globalStatus = $('globalStatus');
 const runStatus = $('runStatus');
 const p2Status = $('p2Status');
+const p2MeasuredRunStatus = $('p2MeasuredRunStatus');
 
 function storageGet(key) {
   try { return window.sessionStorage ? sessionStorage.getItem(key) : null; }
@@ -67,16 +68,27 @@ document.querySelectorAll('.tab-button').forEach(button => {
 });
 showTab(storageGet('activeLab') || 'escLab');
 
+function showP2Mode(mode) {
+  $('p2ModelView').hidden = mode !== 'model';
+  $('p2MeasuredView').hidden = mode !== 'measured';
+  $('p2Mode').value = mode;
+  storageSet('p2Mode', mode);
+  if (mode === 'measured' && apiBase.value && token.value) refreshP2Nodes();
+}
+$('p2Mode').onchange = () => showP2Mode($('p2Mode').value);
+showP2Mode(storageGet('p2Mode') || 'model');
+
 $('saveConfig').onclick = async () => {
   storageSet('apiBase', apiBase.value.trim());
   storageSet('adminToken', token.value.trim());
   setStatus('Configuration accepted. Checking AWS control plane…', 'working');
   await refresh();
+  if ($('p2Mode').value === 'measured') await refreshP2Nodes();
 };
 
 async function refresh() {
   try {
-    setStatus('Checking AWS node and Systems Manager status…', 'working');
+    setStatus('Checking ESC AWS node and Systems Manager status…', 'working');
     const s = await call('/status');
     $('x86State').textContent = `${s.x86_64.state} · SSM ${s.x86_64.ssm_ping_status}`;
     $('x86Type').textContent = `${s.x86_64.instance_type} · ${s.x86_64.architecture} · ${s.x86_64.private_ip || 'no private IP'}`;
@@ -86,9 +98,9 @@ async function refresh() {
     const ready = s.x86_64.state === 'running' && s.arm64.state === 'running' &&
       s.x86_64.ssm_ping_status === 'Online' && s.arm64.ssm_ping_status === 'Online';
     if (ready) {
-      setStatus('Connected. HPC and ZCU are SSM Online; ESC test is ready. P2 timing model is also available.', 'success');
+      setStatus('Connected. ESC HPC and ZCU are SSM Online.', 'success');
     } else {
-      setStatus(`Connected. P2 timing model is available now. ESC nodes: ZCU ${s.x86_64.state}/SSM ${s.x86_64.ssm_ping_status} · HPC ${s.arm64.state}/SSM ${s.arm64.ssm_ping_status}.`, 'info');
+      setStatus(`Connected. ESC nodes: ZCU ${s.x86_64.state}/SSM ${s.x86_64.ssm_ping_status} · HPC ${s.arm64.state}/SSM ${s.arm64.ssm_ping_status}.`, 'info');
     }
   } catch (e) { setStatus(e.message, 'error'); }
 }
@@ -193,18 +205,11 @@ function renderResult(data) {
   </tr>`;
 
   $('comparison').textContent = `ESC: ${String(h.esc).toUpperCase()} · Graviton HPC → x86 ZCU via real UDP/IPv4 · ZCU private IP: ${h.zcu_private_ip}:${h.udp_port}`;
-
   $('networkResults').innerHTML = `<tr>
-    <td>${n.packets_sent ?? '—'}</td>
-    <td>${n.packets_received ?? '—'}</td>
-    <td>${n.packet_loss_pct ?? '—'}%</td>
-    <td>${fmt(n.rtt_ms_mean, 4)} ms</td>
-    <td>${fmt(n.rtt_ms_p95, 4)} ms</td>
-    <td>${n.deadline_misses ?? '—'}</td>
+    <td>${n.packets_sent ?? '—'}</td><td>${n.packets_received ?? '—'}</td><td>${n.packet_loss_pct ?? '—'}%</td>
+    <td>${fmt(n.rtt_ms_mean, 4)} ms</td><td>${fmt(n.rtt_ms_p95, 4)} ms</td><td>${n.deadline_misses ?? '—'}</td>
   </tr>`;
-
   $('zcuMetrics').textContent = `x86 ZCU controller: ${z.packets_received} UDP frames received · sequence gaps: ${z.sequence_gaps} · mean controller compute: ${fmt(z.controller_processing_us_mean, 3)} µs · P95: ${fmt(z.controller_processing_us_p95, 3)} µs.`;
-
   drawTrace('steeringChart', h.trace, 'steer_sw_deg', 'deg');
   drawTrace('yawChart', h.trace, 'yaw_rate_dps', 'deg/s');
   drawTrace('ayChart', h.trace, 'lateral_accel_mps2', 'm/s²');
@@ -248,7 +253,7 @@ $('run').onclick = async () => {
   }
 };
 
-function p2Body() {
+function modelP2Body() {
   const body = {
     architecture: $('p2Architecture').value,
     profile: $('p2Profile').value,
@@ -257,23 +262,38 @@ function p2Body() {
   };
   if (body.profile === 'custom') {
     body.custom_server = {
-      mean_ms: Number($('p2Mean').value),
-      sigma_ms: Number($('p2Sigma').value),
-      minimum_ms: Number($('p2Min').value),
-      maximum_ms: Number($('p2Max').value)
+      mean_ms: Number($('p2Mean').value), sigma_ms: Number($('p2Sigma').value),
+      minimum_ms: Number($('p2Min').value), maximum_ms: Number($('p2Max').value)
     };
   }
   return body;
 }
 
-$('p2Profile').onchange = () => {
-  $('p2Custom').hidden = $('p2Profile').value !== 'custom';
-};
+function measuredP2Body() {
+  const body = {
+    architecture: $('mp2Architecture').value,
+    profile: $('mp2Profile').value,
+    budget_ms: Number($('mp2Budget').value),
+    samples: Number($('mp2Samples').value),
+    proxy_work_ms: Number($('mp2ProxyWork').value),
+    auto_stop: $('mp2AutoStop').checked
+  };
+  if (body.profile === 'custom') {
+    body.custom_server = {
+      mean_ms: Number($('mp2Mean').value), sigma_ms: Number($('mp2Sigma').value),
+      minimum_ms: Number($('mp2Min').value), maximum_ms: Number($('mp2Max').value)
+    };
+  }
+  return body;
+}
 
-function renderBreakdown(results) {
-  $('p2Breakdown').innerHTML = results.map(result => {
-    const components = Object.entries(result.architecture_delay_ms.mean_components)
-      .map(([name, value]) => `<li><span>${name}</span><strong>${fmt(value, 3)} ms</strong></li>`).join('');
+$('p2Profile').onchange = () => { $('p2Custom').hidden = $('p2Profile').value !== 'custom'; };
+$('mp2Profile').onchange = () => { $('mp2Custom').hidden = $('mp2Profile').value !== 'custom'; };
+
+function renderBreakdown(results, elementId) {
+  $(elementId).innerHTML = results.map(result => {
+    const components = Object.entries(result.architecture_delay_ms.mean_components || {})
+      .map(([name, value]) => `<li><span>${name.replaceAll('_', ' ')}</span><strong>${fmt(value, 3)} ms</strong></li>`).join('');
     return `<article class="breakdown-card">
       <h3>${result.label}</h3>
       <ul>
@@ -295,12 +315,11 @@ function drawHistogram(canvas, bins, budgetMs, label) {
   canvas.width = Math.floor(cssWidth * dpr);
   canvas.height = Math.floor(cssHeight * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
   const pad = {l:55, r:18, t:20, b:42};
   const width = cssWidth - pad.l - pad.r;
   const height = cssHeight - pad.t - pad.b;
   const maxCount = Math.max(1, ...bins.map(bin => bin.count));
-  const maxMs = bins[bins.length - 1].to_ms;
+  const maxMs = Math.max(1, bins[bins.length - 1].to_ms);
   const barW = width / bins.length;
 
   ctx.clearRect(0, 0, cssWidth, cssHeight);
@@ -309,85 +328,152 @@ function drawHistogram(canvas, bins, budgetMs, label) {
     const h = (bin.count / maxCount) * height;
     ctx.fillRect(pad.l + i * barW + 1, pad.t + height - h, Math.max(1, barW - 2), h);
   });
-
   ctx.strokeStyle = '#9ca3af';
   ctx.beginPath();
-  ctx.moveTo(pad.l, pad.t);
-  ctx.lineTo(pad.l, pad.t + height);
-  ctx.lineTo(pad.l + width, pad.t + height);
-  ctx.stroke();
-
+  ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, pad.t + height); ctx.lineTo(pad.l + width, pad.t + height); ctx.stroke();
   const budgetX = pad.l + Math.min(1, budgetMs / maxMs) * width;
-  ctx.strokeStyle = '#b91c1c';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(budgetX, pad.t);
-  ctx.lineTo(budgetX, pad.t + height);
-  ctx.stroke();
-
-  ctx.fillStyle = '#6b7280';
-  ctx.font = '12px system-ui';
-  ctx.fillText('0 ms', pad.l, cssHeight - 12);
-  ctx.fillText(`${fmt(maxMs, 0)} ms`, pad.l + width - 42, cssHeight - 12);
-  ctx.fillStyle = '#b91c1c';
-  ctx.fillText(`Budget ${fmt(budgetMs, 0)} ms`, Math.min(cssWidth - 120, budgetX + 5), pad.t + 14);
-  ctx.fillStyle = '#374151';
-  ctx.fillText(label, pad.l, 14);
+  ctx.strokeStyle = '#b91c1c'; ctx.lineWidth = 2; ctx.beginPath();
+  ctx.moveTo(budgetX, pad.t); ctx.lineTo(budgetX, pad.t + height); ctx.stroke();
+  ctx.fillStyle = '#6b7280'; ctx.font = '12px system-ui';
+  ctx.fillText('0 ms', pad.l, cssHeight - 12); ctx.fillText(`${fmt(maxMs, 0)} ms`, pad.l + width - 42, cssHeight - 12);
+  ctx.fillStyle = '#b91c1c'; ctx.fillText(`Budget ${fmt(budgetMs, 0)} ms`, Math.min(cssWidth - 120, budgetX + 5), pad.t + 14);
+  ctx.fillStyle = '#374151'; ctx.fillText(label, pad.l, 14);
 }
 
-function renderP2(data) {
+function renderStudy(data, ids) {
   const results = data.results || [];
-  $('p2Results').innerHTML = results.map(result => `<tr>
-    <td>${result.label}</td>
-    <td>${fmt(result.p2tester_elapsed_ms.mean, 3)} ms</td>
-    <td>${fmt(result.p2tester_elapsed_ms.p50, 3)} ms</td>
-    <td>${fmt(result.p2tester_elapsed_ms.p95, 3)} ms</td>
-    <td>${fmt(result.p2tester_elapsed_ms.p99, 3)} ms</td>
-    <td>${fmt(result.p2tester_elapsed_ms.max, 3)} ms</td>
-    <td>${fmt(result.budget_miss_pct, 3)}%</td>
-    <td>${result.meets_99_percent ? 'PASS' : 'FAIL'}</td>
+  $(ids.table).innerHTML = results.map(result => `<tr>
+    <td>${result.label}</td><td>${fmt(result.p2tester_elapsed_ms.mean, 3)} ms</td>
+    <td>${fmt(result.p2tester_elapsed_ms.p50, 3)} ms</td><td>${fmt(result.p2tester_elapsed_ms.p95, 3)} ms</td>
+    <td>${fmt(result.p2tester_elapsed_ms.p99, 3)} ms</td><td>${fmt(result.p2tester_elapsed_ms.max, 3)} ms</td>
+    <td>${fmt(result.budget_miss_pct, 3)}%</td><td>${result.meets_99_percent ? 'PASS' : 'FAIL'}</td>
   </tr>`).join('');
+  renderBreakdown(results, ids.breakdown);
 
-  renderBreakdown(results);
-
-  const hist = $('p2Histograms');
+  const hist = $(ids.histograms);
   hist.innerHTML = '';
   results.forEach((result, index) => {
-    const card = document.createElement('div');
-    card.className = 'chart-card';
-    const heading = document.createElement('h3');
-    heading.textContent = result.label;
-    const canvas = document.createElement('canvas');
-    canvas.id = `p2Histogram${index}`;
-    card.appendChild(heading);
-    card.appendChild(canvas);
-    hist.appendChild(card);
+    const card = document.createElement('div'); card.className = 'chart-card';
+    const heading = document.createElement('h3'); heading.textContent = result.label;
+    const canvas = document.createElement('canvas'); canvas.id = `${ids.canvasPrefix}${index}`;
+    card.appendChild(heading); card.appendChild(canvas); hist.appendChild(card);
     drawHistogram(canvas, result.histogram, result.p2tester_budget_ms, result.label);
   });
 
   if (results.length > 1) {
     const fastest = [...results].sort((a,b) => a.p2tester_elapsed_ms.p99 - b.p2tester_elapsed_ms.p99)[0];
     const riskiest = [...results].sort((a,b) => b.budget_miss_pct - a.budget_miss_pct)[0];
-    $('p2Conclusion').textContent = `Lowest modeled P99: ${fastest.label} at ${fmt(fastest.p2tester_elapsed_ms.p99, 3)} ms. Highest modeled budget-miss rate: ${riskiest.label} at ${fmt(riskiest.budget_miss_pct, 3)}%.`;
+    $(ids.conclusion).textContent = `Lowest P99: ${fastest.label} at ${fmt(fastest.p2tester_elapsed_ms.p99, 3)} ms. Highest budget-miss rate: ${riskiest.label} at ${fmt(riskiest.budget_miss_pct, 3)}%.`;
   } else if (results.length === 1) {
     const result = results[0];
-    $('p2Conclusion').textContent = `${result.label}: P99 ${fmt(result.p2tester_elapsed_ms.p99, 3)} ms; ${fmt(result.budget_miss_pct, 3)}% of modeled requests exceed the selected budget.`;
+    $(ids.conclusion).textContent = `${result.label}: P99 ${fmt(result.p2tester_elapsed_ms.p99, 3)} ms; ${fmt(result.budget_miss_pct, 3)}% exceed the selected budget.`;
   }
 }
+
+const MODEL_RENDER_IDS = {
+  table:'p2Results', breakdown:'p2Breakdown', histograms:'p2Histograms', conclusion:'p2Conclusion', canvasPrefix:'p2Histogram'
+};
+const MEASURED_RENDER_IDS = {
+  table:'p2MeasuredResults', breakdown:'p2MeasuredBreakdown', histograms:'p2MeasuredHistograms', conclusion:'p2MeasuredConclusion', canvasPrefix:'p2MeasuredHistogram'
+};
 
 $('runP2').onclick = async () => {
   try {
     p2Status.textContent = 'Running timing model in AWS Lambda…';
-    setStatus('Running OBDonUDS P2Tester architecture timing study…', 'working');
-    const result = await call('/p2/simulate', {method:'POST', body:JSON.stringify(p2Body())});
-    renderP2(result);
+    setStatus('Running modeled OBDonUDS P2Tester architecture study…', 'working');
+    const result = await call('/p2/simulate', {method:'POST', body:JSON.stringify(modelP2Body())});
+    renderStudy(result, MODEL_RENDER_IDS);
     p2Status.textContent = `Complete: ${result.results.reduce((sum, item) => sum + item.samples, 0).toLocaleString()} modeled requests evaluated.`;
-    setStatus('P2Tester timing study complete.', 'success');
+    setStatus('Modeled P2Tester timing study complete.', 'success');
   } catch (e) {
-    p2Status.textContent = e.message;
-    setStatus(e.message, 'error');
+    p2Status.textContent = e.message; setStatus(e.message, 'error');
+  }
+};
+
+function renderP2Node(role, node) {
+  const prefix = {tester:'p2Tester', hpc:'p2Hpc', zone:'p2Zone', target:'p2Target'}[role];
+  $(`${prefix}State`).textContent = `${node.state} · SSM ${node.ssm_ping_status}`;
+  $(`${prefix}Type`).textContent = `${node.instance_type} · ${node.architecture} · ${node.private_ip || 'no private IP'}`;
+}
+
+async function refreshP2Nodes() {
+  try {
+    const nodes = await call('/p2/measured/status');
+    Object.entries(nodes).forEach(([role,node]) => renderP2Node(role,node));
+    const ready = Object.values(nodes).every(node => node.state === 'running' && node.ssm_ping_status === 'Online');
+    if (ready) {
+      p2MeasuredRunStatus.textContent = 'All four P2 nodes are running and SSM Online. Ready for measured test.';
+      setStatus('Measured P2 lab is ready: Tester, HPC, Zone, and Target are SSM Online.', 'success');
+    } else {
+      const compact = Object.entries(nodes).map(([role,node]) => `${role} ${node.state}/SSM ${node.ssm_ping_status}`).join(' · ');
+      p2MeasuredRunStatus.textContent = `Not ready yet: ${compact}`;
+      setStatus(`Measured P2 nodes: ${compact}`, 'info');
+    }
+  } catch (e) {
+    p2MeasuredRunStatus.textContent = e.message; setStatus(e.message, 'error');
+  }
+}
+
+async function p2FleetAction(action) {
+  try {
+    setStatus(`${action === 'start' ? 'Starting' : 'Stopping'} the four measured P2 nodes…`, 'working');
+    await call(`/p2/measured/nodes/${action}`, {method:'POST'});
+    p2MeasuredRunStatus.textContent = `${action} requested for Tester, HPC, Zone, and Target.`;
+    setTimeout(refreshP2Nodes, 3500);
+  } catch (e) {
+    p2MeasuredRunStatus.textContent = e.message; setStatus(e.message, 'error');
+  }
+}
+$('startP2Nodes').onclick = () => p2FleetAction('start');
+$('stopP2Nodes').onclick = () => p2FleetAction('stop');
+$('refreshP2Nodes').onclick = refreshP2Nodes;
+
+function commandFailureText(envelope) {
+  if (!envelope.failed_commands) return envelope.error || 'Measured P2 run failed.';
+  const details = Object.entries(envelope.failed_commands).map(([role, snap]) => {
+    const stderr = (snap.stderr || '').trim();
+    return `${role}: ${snap.status}${stderr ? ` — ${stderr}` : ''}`;
+  }).join(' | ');
+  return `${envelope.error || 'Measured P2 run failed.'} ${details}`;
+}
+
+async function pollP2Measured(runId) {
+  for (let i=0; i<400; i++) {
+    try {
+      const envelope = await call(`/p2/measured/results/${runId}`);
+      if (envelope.complete && envelope.result) {
+        renderStudy(envelope.result, MEASURED_RENDER_IDS);
+        p2MeasuredRunStatus.textContent = `Measured run ${runId} complete. Results came from the Tester EC2 end-to-end clock.`;
+        setStatus('Measured AWS P2Tester test complete.', 'success');
+        if ($('mp2AutoStop').checked) setTimeout(refreshP2Nodes, 3500);
+        return;
+      }
+      if (envelope.error) throw new Error(commandFailureText(envelope));
+      const commandText = Object.entries(envelope.commands || {}).map(([role,s]) => `${role}:${s.status}`).join(' · ');
+      p2MeasuredRunStatus.textContent = `Measured run ${runId} executing… ${commandText}`;
+    } catch (e) {
+      p2MeasuredRunStatus.textContent = e.message; setStatus(e.message, 'error'); return;
+    }
+    await new Promise(resolve => setTimeout(resolve, 3000));
+  }
+  p2MeasuredRunStatus.textContent = 'Timed out waiting for measured P2 results.';
+  setStatus('Timed out waiting for measured P2 results.', 'error');
+}
+
+$('runP2Measured').onclick = async () => {
+  try {
+    p2MeasuredRunStatus.textContent = 'Launching Target → Zone → HPC → Tester through AWS Systems Manager…';
+    setStatus('Starting real multi-node P2Tester measurement…', 'working');
+    const result = await call('/p2/measured/run', {method:'POST', body:JSON.stringify(measuredP2Body())});
+    p2MeasuredRunStatus.textContent = `Run ${result.run_id} started on real VPC TCP/${result.port}.`;
+    pollP2Measured(result.run_id);
+  } catch (e) {
+    p2MeasuredRunStatus.textContent = e.message; setStatus(e.message, 'error');
   }
 };
 
 setStatus('Dashboard JavaScript loaded. Enter/confirm the admin token and click Use configuration.', 'info');
-if (apiBase.value && token.value) refresh();
+if (apiBase.value && token.value) {
+  refresh();
+  if ($('p2Mode').value === 'measured') refreshP2Nodes();
+}
