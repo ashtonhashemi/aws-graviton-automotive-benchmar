@@ -3,6 +3,7 @@ const apiBase = $('apiBase');
 const token = $('token');
 const globalStatus = $('globalStatus');
 const runStatus = $('runStatus');
+const p2Status = $('p2Status');
 
 function storageGet(key) {
   try { return window.sessionStorage ? sessionStorage.getItem(key) : null; }
@@ -23,7 +24,6 @@ function setStatus(message, type='info') {
     globalStatus.textContent = message;
     globalStatus.className = `status-banner ${type}`;
   }
-  if (runStatus) runStatus.textContent = message;
   console.log(`[dashboard:${type}] ${message}`);
 }
 
@@ -56,10 +56,21 @@ async function call(path, options={}) {
   return body;
 }
 
+function showTab(id) {
+  document.querySelectorAll('.lab-view').forEach(view => { view.hidden = view.id !== id; });
+  document.querySelectorAll('.tab-button').forEach(button => button.classList.toggle('active', button.dataset.tab === id));
+  storageSet('activeLab', id);
+}
+
+document.querySelectorAll('.tab-button').forEach(button => {
+  button.onclick = () => showTab(button.dataset.tab);
+});
+showTab(storageGet('activeLab') || 'escLab');
+
 $('saveConfig').onclick = async () => {
   storageSet('apiBase', apiBase.value.trim());
   storageSet('adminToken', token.value.trim());
-  setStatus('Configuration accepted. Checking HPC and ZCU status…', 'working');
+  setStatus('Configuration accepted. Checking AWS control plane…', 'working');
   await refresh();
 };
 
@@ -75,9 +86,9 @@ async function refresh() {
     const ready = s.x86_64.state === 'running' && s.arm64.state === 'running' &&
       s.x86_64.ssm_ping_status === 'Online' && s.arm64.ssm_ping_status === 'Online';
     if (ready) {
-      setStatus('HPC and ZCU are running and SSM Online. Ready to run the distributed ESC test.', 'success');
+      setStatus('Connected. HPC and ZCU are SSM Online; ESC test is ready. P2 timing model is also available.', 'success');
     } else {
-      setStatus(`Not ready yet. ZCU: ${s.x86_64.state}/SSM ${s.x86_64.ssm_ping_status} · HPC: ${s.arm64.state}/SSM ${s.arm64.ssm_ping_status}. Refresh until both are SSM Online.`, 'working');
+      setStatus(`Connected. P2 timing model is available now. ESC nodes: ZCU ${s.x86_64.state}/SSM ${s.x86_64.ssm_ping_status} · HPC ${s.arm64.state}/SSM ${s.arm64.ssm_ping_status}.`, 'info');
     }
   } catch (e) { setStatus(e.message, 'error'); }
 }
@@ -125,7 +136,7 @@ function drawTrace(canvasId, trace, key, unit) {
   canvas.style.height = `${cssHeight}px`;
   canvas.width = Math.floor(cssWidth * dpr);
   canvas.height = Math.floor(cssHeight * dpr);
-  ctx.scale(dpr, dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
   const pad = {l:62, r:18, t:18, b:42};
   const width = cssWidth - pad.l - pad.r;
@@ -207,27 +218,175 @@ async function poll(runId) {
       const result = await call(`/benchmark/results/${runId}`);
       if (result.complete) {
         renderResult(result);
+        if (runStatus) runStatus.textContent = `Distributed ESC SIL run ${runId} complete.`;
         setStatus(`Distributed ESC SIL run ${runId} complete.`, 'success');
         return;
       }
-      setStatus(`Distributed ESC SIL run ${runId} is executing…`, 'working');
+      if (runStatus) runStatus.textContent = `Run ${runId} is executing…`;
     } catch (e) {
+      if (runStatus) runStatus.textContent = e.message;
       setStatus(e.message, 'error');
       return;
     }
     await new Promise(resolve => setTimeout(resolve, 3000));
   }
-  setStatus('Timed out waiting for results.', 'error');
+  if (runStatus) runStatus.textContent = 'Timed out waiting for ESC results.';
+  setStatus('Timed out waiting for ESC results.', 'error');
 }
 
 $('run').onclick = async () => {
   try {
+    if (runStatus) runStatus.textContent = 'Starting x86 ZCU service and Graviton HPC maneuver…';
     setStatus('Starting x86 ZCU service and Graviton HPC maneuver…', 'working');
     const body = {esc:$('esc').value, auto_stop:$('autoStop').checked};
     const result = await call('/benchmark/run', {method:'POST', body:JSON.stringify(body)});
-    setStatus(`Started run ${result.run_id}; real UDP ${result.zcu_private_ip}:${result.udp_port}`, 'working');
+    if (runStatus) runStatus.textContent = `Started run ${result.run_id}; real UDP ${result.zcu_private_ip}:${result.udp_port}`;
     poll(result.run_id);
-  } catch(e) { setStatus(e.message, 'error'); }
+  } catch(e) {
+    if (runStatus) runStatus.textContent = e.message;
+    setStatus(e.message, 'error');
+  }
+};
+
+function p2Body() {
+  const body = {
+    architecture: $('p2Architecture').value,
+    profile: $('p2Profile').value,
+    budget_ms: Number($('p2Budget').value),
+    samples: Number($('p2Samples').value)
+  };
+  if (body.profile === 'custom') {
+    body.custom_server = {
+      mean_ms: Number($('p2Mean').value),
+      sigma_ms: Number($('p2Sigma').value),
+      minimum_ms: Number($('p2Min').value),
+      maximum_ms: Number($('p2Max').value)
+    };
+  }
+  return body;
+}
+
+$('p2Profile').onchange = () => {
+  $('p2Custom').hidden = $('p2Profile').value !== 'custom';
+};
+
+function renderBreakdown(results) {
+  $('p2Breakdown').innerHTML = results.map(result => {
+    const components = Object.entries(result.architecture_delay_ms.mean_components)
+      .map(([name, value]) => `<li><span>${name}</span><strong>${fmt(value, 3)} ms</strong></li>`).join('');
+    return `<article class="breakdown-card">
+      <h3>${result.label}</h3>
+      <ul>
+        <li><span>Target ECU processing</span><strong>${fmt(result.server_processing_ms.mean, 3)} ms</strong></li>
+        ${components}
+        <li class="total"><span>Total P2Tester mean</span><strong>${fmt(result.p2tester_elapsed_ms.mean, 3)} ms</strong></li>
+      </ul>
+    </article>`;
+  }).join('');
+}
+
+function drawHistogram(canvas, bins, budgetMs, label) {
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const cssWidth = Math.max(320, canvas.parentElement.clientWidth - 2);
+  const cssHeight = 260;
+  canvas.style.width = `${cssWidth}px`;
+  canvas.style.height = `${cssHeight}px`;
+  canvas.width = Math.floor(cssWidth * dpr);
+  canvas.height = Math.floor(cssHeight * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const pad = {l:55, r:18, t:20, b:42};
+  const width = cssWidth - pad.l - pad.r;
+  const height = cssHeight - pad.t - pad.b;
+  const maxCount = Math.max(1, ...bins.map(bin => bin.count));
+  const maxMs = bins[bins.length - 1].to_ms;
+  const barW = width / bins.length;
+
+  ctx.clearRect(0, 0, cssWidth, cssHeight);
+  ctx.fillStyle = '#111827';
+  bins.forEach((bin, i) => {
+    const h = (bin.count / maxCount) * height;
+    ctx.fillRect(pad.l + i * barW + 1, pad.t + height - h, Math.max(1, barW - 2), h);
+  });
+
+  ctx.strokeStyle = '#9ca3af';
+  ctx.beginPath();
+  ctx.moveTo(pad.l, pad.t);
+  ctx.lineTo(pad.l, pad.t + height);
+  ctx.lineTo(pad.l + width, pad.t + height);
+  ctx.stroke();
+
+  const budgetX = pad.l + Math.min(1, budgetMs / maxMs) * width;
+  ctx.strokeStyle = '#b91c1c';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(budgetX, pad.t);
+  ctx.lineTo(budgetX, pad.t + height);
+  ctx.stroke();
+
+  ctx.fillStyle = '#6b7280';
+  ctx.font = '12px system-ui';
+  ctx.fillText('0 ms', pad.l, cssHeight - 12);
+  ctx.fillText(`${fmt(maxMs, 0)} ms`, pad.l + width - 42, cssHeight - 12);
+  ctx.fillStyle = '#b91c1c';
+  ctx.fillText(`Budget ${fmt(budgetMs, 0)} ms`, Math.min(cssWidth - 120, budgetX + 5), pad.t + 14);
+  ctx.fillStyle = '#374151';
+  ctx.fillText(label, pad.l, 14);
+}
+
+function renderP2(data) {
+  const results = data.results || [];
+  $('p2Results').innerHTML = results.map(result => `<tr>
+    <td>${result.label}</td>
+    <td>${fmt(result.p2tester_elapsed_ms.mean, 3)} ms</td>
+    <td>${fmt(result.p2tester_elapsed_ms.p50, 3)} ms</td>
+    <td>${fmt(result.p2tester_elapsed_ms.p95, 3)} ms</td>
+    <td>${fmt(result.p2tester_elapsed_ms.p99, 3)} ms</td>
+    <td>${fmt(result.p2tester_elapsed_ms.max, 3)} ms</td>
+    <td>${fmt(result.budget_miss_pct, 3)}%</td>
+    <td>${result.meets_99_percent ? 'PASS' : 'FAIL'}</td>
+  </tr>`).join('');
+
+  renderBreakdown(results);
+
+  const hist = $('p2Histograms');
+  hist.innerHTML = '';
+  results.forEach((result, index) => {
+    const card = document.createElement('div');
+    card.className = 'chart-card';
+    const heading = document.createElement('h3');
+    heading.textContent = result.label;
+    const canvas = document.createElement('canvas');
+    canvas.id = `p2Histogram${index}`;
+    card.appendChild(heading);
+    card.appendChild(canvas);
+    hist.appendChild(card);
+    drawHistogram(canvas, result.histogram, result.p2tester_budget_ms, result.label);
+  });
+
+  if (results.length > 1) {
+    const fastest = [...results].sort((a,b) => a.p2tester_elapsed_ms.p99 - b.p2tester_elapsed_ms.p99)[0];
+    const riskiest = [...results].sort((a,b) => b.budget_miss_pct - a.budget_miss_pct)[0];
+    $('p2Conclusion').textContent = `Lowest modeled P99: ${fastest.label} at ${fmt(fastest.p2tester_elapsed_ms.p99, 3)} ms. Highest modeled budget-miss rate: ${riskiest.label} at ${fmt(riskiest.budget_miss_pct, 3)}%.`;
+  } else if (results.length === 1) {
+    const result = results[0];
+    $('p2Conclusion').textContent = `${result.label}: P99 ${fmt(result.p2tester_elapsed_ms.p99, 3)} ms; ${fmt(result.budget_miss_pct, 3)}% of modeled requests exceed the selected budget.`;
+  }
+}
+
+$('runP2').onclick = async () => {
+  try {
+    p2Status.textContent = 'Running timing model in AWS Lambda…';
+    setStatus('Running OBDonUDS P2Tester architecture timing study…', 'working');
+    const result = await call('/p2/simulate', {method:'POST', body:JSON.stringify(p2Body())});
+    renderP2(result);
+    p2Status.textContent = `Complete: ${result.results.reduce((sum, item) => sum + item.samples, 0).toLocaleString()} modeled requests evaluated.`;
+    setStatus('P2Tester timing study complete.', 'success');
+  } catch (e) {
+    p2Status.textContent = e.message;
+    setStatus(e.message, 'error');
+  }
 };
 
 setStatus('Dashboard JavaScript loaded. Enter/confirm the admin token and click Use configuration.', 'info');
