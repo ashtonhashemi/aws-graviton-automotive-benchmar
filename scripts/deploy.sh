@@ -32,7 +32,13 @@ DASHBOARD_BUCKET="$(output DashboardBucket)"
 API_URL="$(output ApiUrl)"
 DIST_ID="$(output DashboardDistributionId)"
 DASHBOARD_URL="$(output DashboardUrl)"
+ZCU_IP="$(output X86ZcuPrivateIp)"
+HPC_IP="$(output GravitonHpcPrivateIp)"
 
+# Runtime assets fetched by SSM onto the two EC2 nodes.
+aws s3 cp network/zcu_esc.py "s3://$RESULTS_BUCKET/assets/zcu_esc.py" --region "$REGION"
+aws s3 cp network/hpc_vehicle.py "s3://$RESULTS_BUCKET/assets/hpc_vehicle.py" --region "$REGION"
+# Keep the standalone single-process model available for local/reference testing.
 aws s3 cp benchmark/benchmark.py "s3://$RESULTS_BUCKET/assets/benchmark.py" --region "$REGION"
 
 # Upload browser assets explicitly with deterministic MIME and no-cache headers.
@@ -67,10 +73,12 @@ aws cloudfront wait invalidation-completed --distribution-id "$DIST_ID" --id "$I
 
 cat <<EOF
 Deployment complete.
-Dashboard: $DASHBOARD_URL
-API:       $API_URL
+Dashboard:    $DASHBOARD_URL
+API:          $API_URL
+Graviton HPC: $HPC_IP
+x86 ZCU:      $ZCU_IP
+Ethernet:     UDP/5005 over private VPC networking
 
 Open the dashboard and enter the ADMIN_TOKEN you supplied at deploy time.
-The dashboard should immediately show that its JavaScript loaded.
-IMPORTANT: EC2 instances are created in running state. Stop both from the dashboard when not benchmarking.
+IMPORTANT: stop both EC2 nodes when not running the SIL experiment.
 EOF
