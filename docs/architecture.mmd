@@ -3,27 +3,26 @@ flowchart LR
   CF --> S3D[(Private S3 Dashboard Bucket)]
   U -->|X-Admin-Token| API[API Gateway HTTP API]
   API --> L[Control Lambda]
-  L -->|Start / Stop| EC2X[c7i x86_64 EC2]
-  L -->|Start / Stop| EC2A[c8g Graviton4 ARM64 EC2]
-  L -->|Run identical SIL workload| SSM[AWS Systems Manager]
-  SSM --> EC2X
-  SSM --> EC2A
+  L --> SSM[AWS Systems Manager]
 
-  subgraph SIL[FMVSS 126-inspired ESC SIL workload]
-    MAN[Sine-with-Dwell steering\n0.7 Hz + 500 ms dwell]
-    CAN[Simulated CAN\nsteering + speed + yaw + lateral acceleration]
-    ESC[ESC Controller\ndesired yaw + corrective yaw moment]
-    VEH[Simplified nonlinear\nbicycle vehicle model]
-    ETH[Simulated Ethernet telemetry\n100 ms binary packets]
-    MET[Yaw decay + lateral displacement\npass/fail metrics]
-    MAN --> CAN --> ESC --> VEH --> CAN
-    VEH --> ETH --> MET
+  SSM -->|Start ZCU service| ZCU[c7i x86_64 EC2\nZCU / ESC Controller]
+  SSM -->|Start maneuver| HPC[c8g Graviton4 EC2\nHPC / Vehicle Dynamics]
+
+  subgraph VPC[AWS VPC — real private Ethernet/IP]
+    HPC -->|UDP/5005 @ 100 Hz\nsteering, speed, yaw, ay, beta| ZCU
+    ZCU -->|UDP response\nESC corrective yaw moment| HPC
   end
 
-  EC2X --> SIL
-  EC2A --> SIL
-  EC2X -->|JSON result| S3R[(S3 Results Bucket)]
-  EC2A -->|JSON result| S3R
-  L --> S3R
+  MAN[FMVSS 126-inspired\nSine-with-Dwell] --> HPC
+  HPC --> VEH[Nonlinear bicycle\nvehicle model]
+  VEH --> HPC
+  HPC --> MET[Yaw decay + lateral displacement\nFMVSS-style metrics]
+
+  HPC -->|trace + network RTT + vehicle result| S3R[(S3 Results Bucket)]
+  ZCU -->|packet + controller timing result| S3R
   L --> DDB[(DynamoDB Run Metadata)]
-  U -->|Poll FMVSS-style + compute results| API
+  U -->|Poll results| API
+  API --> L
+  L --> S3R
+
+  SG[Security Group\nUDP/5005 only worker-SG to worker-SG] -. protects .-> VPC
