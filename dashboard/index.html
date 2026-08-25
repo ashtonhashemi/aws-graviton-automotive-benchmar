@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Distributed ESC SIL — Graviton HPC + x86 ZCU</title>
+  <title>AWS Automotive Systems Lab</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <main>
     <header>
-      <p class="eyebrow">Distributed automotive SIL · real AWS VPC Ethernet</p>
-      <h1>ESC SIL: HPC ↔ ZCU</h1>
-      <p>AWS Graviton runs the vehicle dynamics and FMVSS 126-inspired Sine-with-Dwell maneuver. An x86 EC2 node represents the ZCU and runs the ESC controller. The 100 Hz control loop crosses real bidirectional UDP/IP over the AWS VPC.</p>
+      <p class="eyebrow">Automotive systems engineering · AWS</p>
+      <h1>AWS Automotive Systems Lab</h1>
+      <p>Two engineering experiments: a distributed ESC SIL control loop over real VPC Ethernet, and an OBDonUDS P2Tester architecture timing trade study.</p>
     </header>
 
     <div id="globalStatus" class="status-banner info" role="status" aria-live="polite">Loading dashboard configuration…</div>
@@ -22,64 +22,143 @@
       <button id="saveConfig">Use configuration</button>
     </section>
 
-    <section class="panel fleet-actions">
-      <button id="startBoth">Start HPC + ZCU</button>
-      <button id="stopBoth">Stop HPC + ZCU</button>
-      <button id="refresh">Refresh Status</button>
-    </section>
+    <nav class="lab-tabs" aria-label="Engineering experiments">
+      <button class="tab-button active" data-tab="escLab">Distributed ESC SIL</button>
+      <button class="tab-button" data-tab="p2Lab">OBDonUDS P2Tester Timing</button>
+    </nav>
 
-    <section class="grid">
-      <article class="panel worker">
-        <p class="eyebrow">Controller node</p>
-        <h2>x86 EC2 · ZCU / ESC</h2>
-        <p id="x86State">Unknown</p><p id="x86Type">—</p>
-        <div class="actions"><button data-arch="x86_64" data-action="start">Start ZCU</button><button data-arch="x86_64" data-action="stop">Stop ZCU</button></div>
-      </article>
-      <article class="panel worker">
-        <p class="eyebrow">Simulation node</p>
-        <h2>AWS Graviton · HPC</h2>
-        <p id="armState">Unknown</p><p id="armType">—</p>
-        <div class="actions"><button data-arch="arm64" data-action="start">Start HPC</button><button data-arch="arm64" data-action="stop">Stop HPC</button></div>
-      </article>
-    </section>
+    <div id="escLab" class="lab-view">
+      <section class="panel lab-intro">
+        <p class="eyebrow">Experiment 01 · real AWS network</p>
+        <h2>Distributed ESC SIL — Graviton HPC ↔ x86 ZCU</h2>
+        <p>AWS Graviton runs the vehicle dynamics and FMVSS 126-inspired Sine-with-Dwell maneuver. An x86 EC2 node represents the ZCU and runs the ESC controller. The 100 Hz control loop crosses real bidirectional UDP/IP over the AWS VPC.</p>
+      </section>
 
-    <section class="panel">
-      <h2>FMVSS 126-inspired ESC Test</h2>
-      <p>Illustrative SIL engineering model, not an FMVSS certification test. The Graviton HPC sends steering, speed, yaw rate, lateral acceleration and sideslip to the x86 ZCU every 10 ms; the ZCU returns the ESC corrective yaw moment.</p>
-      <div class="form-row">
-        <label>ESC state <select id="esc"><option value="on">ESC ON</option><option value="off">ESC OFF</option></select></label>
-        <label class="check"><span>Auto-stop nodes after test</span><input id="autoStop" type="checkbox" checked /></label>
-      </div>
-      <button id="run">Run distributed ESC test</button>
-      <p id="runStatus">No simulation running.</p>
-    </section>
+      <section class="panel fleet-actions">
+        <button id="startBoth">Start HPC + ZCU</button>
+        <button id="stopBoth">Stop HPC + ZCU</button>
+        <button id="refresh">Refresh Status</button>
+      </section>
 
-    <section class="panel">
-      <h2>FMVSS-style Results</h2>
-      <table>
-        <thead><tr><th>Yaw @ 1.0 s</th><th>Yaw @ 1.75 s</th><th>Lateral displacement</th><th>ESC result</th></tr></thead>
-        <tbody id="results"><tr><td colspan="4">No results yet.</td></tr></tbody>
-      </table>
-      <p id="comparison"></p>
-    </section>
+      <section class="grid">
+        <article class="panel worker">
+          <p class="eyebrow">Controller node</p>
+          <h2>x86 EC2 · ZCU / ESC</h2>
+          <p id="x86State">Unknown</p><p id="x86Type">—</p>
+          <div class="actions"><button data-arch="x86_64" data-action="start">Start ZCU</button><button data-arch="x86_64" data-action="stop">Stop ZCU</button></div>
+        </article>
+        <article class="panel worker">
+          <p class="eyebrow">Simulation node</p>
+          <h2>AWS Graviton · HPC</h2>
+          <p id="armState">Unknown</p><p id="armType">—</p>
+          <div class="actions"><button data-arch="arm64" data-action="start">Start HPC</button><button data-arch="arm64" data-action="stop">Stop HPC</button></div>
+        </article>
+      </section>
 
-    <section class="panel">
-      <h2>Real VPC Ethernet Control Loop</h2>
-      <table>
-        <thead><tr><th>Packets sent</th><th>Received</th><th>Loss</th><th>Mean RTT</th><th>P95 RTT</th><th>Deadline misses</th></tr></thead>
-        <tbody id="networkResults"><tr><td colspan="6">No network results yet.</td></tr></tbody>
-      </table>
-      <p id="zcuMetrics"></p>
-    </section>
+      <section class="panel">
+        <h2>FMVSS 126-inspired ESC Test</h2>
+        <p>Illustrative SIL engineering model, not an FMVSS certification test. The Graviton HPC sends steering, speed, yaw rate, lateral acceleration and sideslip to the x86 ZCU every 10 ms; the ZCU returns the ESC corrective yaw moment.</p>
+        <div class="form-row">
+          <label>ESC state <select id="esc"><option value="on">ESC ON</option><option value="off">ESC OFF</option></select></label>
+          <label class="check"><span>Auto-stop nodes after test</span><input id="autoStop" type="checkbox" checked /></label>
+        </div>
+        <button id="run">Run distributed ESC test</button>
+        <p id="runStatus">No ESC simulation running.</p>
+      </section>
 
-    <section class="panel traces">
-      <h2>Vehicle & Control Time Histories</h2>
-      <div class="chart-card"><h3>Steering wheel angle</h3><canvas id="steeringChart" width="960" height="260"></canvas></div>
-      <div class="chart-card"><h3>Yaw rate</h3><canvas id="yawChart" width="960" height="260"></canvas></div>
-      <div class="chart-card"><h3>Lateral acceleration</h3><canvas id="ayChart" width="960" height="260"></canvas></div>
-      <div class="chart-card"><h3>ESC corrective yaw moment</h3><canvas id="momentChart" width="960" height="260"></canvas></div>
-      <div class="chart-card"><h3>HPC ↔ ZCU network RTT</h3><canvas id="rttChart" width="960" height="260"></canvas></div>
-    </section>
+      <section class="panel">
+        <h2>FMVSS-style Results</h2>
+        <table>
+          <thead><tr><th>Yaw @ 1.0 s</th><th>Yaw @ 1.75 s</th><th>Lateral displacement</th><th>ESC result</th></tr></thead>
+          <tbody id="results"><tr><td colspan="4">No results yet.</td></tr></tbody>
+        </table>
+        <p id="comparison"></p>
+      </section>
+
+      <section class="panel">
+        <h2>Real VPC Ethernet Control Loop</h2>
+        <table>
+          <thead><tr><th>Packets sent</th><th>Received</th><th>Loss</th><th>Mean RTT</th><th>P95 RTT</th><th>Deadline misses</th></tr></thead>
+          <tbody id="networkResults"><tr><td colspan="6">No network results yet.</td></tr></tbody>
+        </table>
+        <p id="zcuMetrics"></p>
+      </section>
+
+      <section class="panel traces">
+        <h2>Vehicle & Control Time Histories</h2>
+        <div class="chart-card"><h3>Steering wheel angle</h3><canvas id="steeringChart" width="960" height="260"></canvas></div>
+        <div class="chart-card"><h3>Yaw rate</h3><canvas id="yawChart" width="960" height="260"></canvas></div>
+        <div class="chart-card"><h3>Lateral acceleration</h3><canvas id="ayChart" width="960" height="260"></canvas></div>
+        <div class="chart-card"><h3>ESC corrective yaw moment</h3><canvas id="momentChart" width="960" height="260"></canvas></div>
+        <div class="chart-card"><h3>HPC ↔ ZCU network RTT</h3><canvas id="rttChart" width="960" height="260"></canvas></div>
+      </section>
+    </div>
+
+    <div id="p2Lab" class="lab-view" hidden>
+      <section class="panel lab-intro">
+        <p class="eyebrow">Experiment 02 · architecture timing model</p>
+        <h2>OBDonUDS P2Tester — Distributed vs Zonal</h2>
+        <p>Compare tester-to-response timing for a conventional diagnostic gateway + CAN-FD path, transparent zonal Ethernet routing, and an HPC diagnostic-proxy architecture. This mode is an engineering Monte Carlo model executed in AWS Lambda; its delay distributions are assumptions, not normative SAE/ISO values.</p>
+      </section>
+
+      <section class="panel">
+        <h2>Timing Study Configuration</h2>
+        <div class="form-row">
+          <label>Architecture
+            <select id="p2Architecture">
+              <option value="all">Compare all three</option>
+              <option value="distributed_canfd">Distributed gateway + CAN-FD</option>
+              <option value="zonal_transparent">Zonal transparent Ethernet</option>
+              <option value="zonal_hpc_proxy">Zonal HPC diagnostic proxy</option>
+            </select>
+          </label>
+          <label>Target ECU timing profile
+            <select id="p2Profile">
+              <option value="nominal">Nominal ECU — 20 ms mean</option>
+              <option value="near_limit">Near-limit ECU — 38 ms mean</option>
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+          <label>P2Tester budget (ms)<input id="p2Budget" type="number" min="1" max="5000" step="1" value="50" /></label>
+          <label>Monte Carlo samples<input id="p2Samples" type="number" min="100" max="100000" step="1000" value="20000" /></label>
+        </div>
+
+        <div id="p2Custom" class="form-row custom-row" hidden>
+          <label>ECU mean (ms)<input id="p2Mean" type="number" step="0.1" value="38" /></label>
+          <label>ECU σ (ms)<input id="p2Sigma" type="number" step="0.1" value="5" /></label>
+          <label>ECU minimum (ms)<input id="p2Min" type="number" step="0.1" value="20" /></label>
+          <label>ECU maximum (ms)<input id="p2Max" type="number" step="0.1" value="49" /></label>
+        </div>
+
+        <button id="runP2">Run P2Tester timing study</button>
+        <p id="p2Status">No timing study running.</p>
+      </section>
+
+      <section class="panel">
+        <h2>P2Tester Results</h2>
+        <table>
+          <thead><tr><th>Architecture</th><th>Mean</th><th>P50</th><th>P95</th><th>P99</th><th>Max</th><th>&gt; Budget</th><th>P99 Result</th></tr></thead>
+          <tbody id="p2Results"><tr><td colspan="8">No results yet.</td></tr></tbody>
+        </table>
+        <p id="p2Conclusion"></p>
+      </section>
+
+      <section class="panel">
+        <h2>Mean Latency Budget Breakdown</h2>
+        <div id="p2Breakdown" class="breakdown-grid"><p>No results yet.</p></div>
+      </section>
+
+      <section class="panel traces">
+        <h2>P2Tester Response-Time Distribution</h2>
+        <p>The vertical reference line is the selected P2Tester budget. Histograms show the modeled end-to-end tester elapsed time.</p>
+        <div id="p2Histograms"></div>
+      </section>
+
+      <section class="panel model-note">
+        <strong>Current mode: model, not measured AWS vehicle-network latency.</strong>
+        <p>The next implementation phase will add real tester/HPC/zone/target processes with timestamps at each boundary. That measured mode will sit beside this model rather than replace it.</p>
+      </section>
+    </div>
   </main>
   <script src="config.js"></script>
   <script src="app.js"></script>
