@@ -6,6 +6,7 @@ import time
 import uuid
 
 import boto3
+from botocore.exceptions import ClientError
 
 EC2 = boto3.client("ec2")
 SSM = boto3.client("ssm")
@@ -37,7 +38,25 @@ def authorized(event):
     return headers.get("x-admin-token") == ADMIN_TOKEN
 
 
-def state(instance_id, role):
+def ssm_statuses():
+    statuses = {}
+    token = None
+    while True:
+        kwargs = {"MaxResults": 50}
+        if token:
+            kwargs["NextToken"] = token
+        page = SSM.describe_instance_information(**kwargs)
+        for info in page.get("InstanceInformationList", []):
+            iid = info.get("InstanceId")
+            if iid in (X86_ID, ARM_ID):
+                statuses[iid] = info.get("PingStatus", "Unknown")
+        token = page.get("NextToken")
+        if not token or len(statuses) == 2:
+            break
+    return statuses
+
+
+def state(instance_id, role, ssm_map=None):
     r = EC2.describe_instances(InstanceIds=[instance_id])
     i = r["Reservations"][0]["Instances"][0]
     return {
@@ -47,6 +66,7 @@ def state(instance_id, role):
         "architecture": i["Architecture"],
         "private_ip": i.get("PrivateIpAddress"),
         "role": role,
+        "ssm_ping_status": (ssm_map or {}).get(instance_id, "NotRegistered"),
     }
 
 
@@ -92,29 +112,41 @@ def run_benchmark(body):
     if esc not in ("on", "off"):
         raise ValueError("esc must be on or off")
 
-    zcu = state(X86_ID, "x86 EC2 ZCU / ESC controller")
-    hpc = state(ARM_ID, "Graviton HPC / vehicle and FMVSS maneuver simulator")
+    ssm_map = ssm_statuses()
+    zcu = state(X86_ID, "x86 EC2 ZCU / ESC controller", ssm_map)
+    hpc = state(ARM_ID, "Graviton HPC / vehicle and FMVSS maneuver simulator", ssm_map)
     states = {"zcu": zcu, "hpc": hpc}
+
     if zcu["state"] != "running" or hpc["state"] != "running":
         return response(409, {"error": "Both the Graviton HPC and x86 ZCU must be running", "instances": states})
+    if zcu["ssm_ping_status"] != "Online" or hpc["ssm_ping_status"] != "Online":
+        return response(409, {
+            "error": "EC2 is running, but Systems Manager is not ready on both nodes yet. Refresh Status until both show SSM Online, then run the test.",
+            "instances": states,
+        })
     if not zcu.get("private_ip"):
         return response(409, {"error": "ZCU private VPC IP is unavailable", "instances": states})
 
     run_id = str(uuid.uuid4())
+    try:
+        zcu_cmd = SSM.send_command(
+            InstanceIds=[X86_ID],
+            DocumentName="AWS-RunShellScript",
+            Parameters={"commands": zcu_commands(run_id, esc, auto_stop)},
+            TimeoutSeconds=600,
+        )["Command"]["CommandId"]
 
-    zcu_cmd = SSM.send_command(
-        InstanceIds=[X86_ID],
-        DocumentName="AWS-RunShellScript",
-        Parameters={"commands": zcu_commands(run_id, esc, auto_stop)},
-        TimeoutSeconds=600,
-    )["Command"]["CommandId"]
-
-    hpc_cmd = SSM.send_command(
-        InstanceIds=[ARM_ID],
-        DocumentName="AWS-RunShellScript",
-        Parameters={"commands": hpc_commands(run_id, zcu["private_ip"], esc, auto_stop)},
-        TimeoutSeconds=600,
-    )["Command"]["CommandId"]
+        hpc_cmd = SSM.send_command(
+            InstanceIds=[ARM_ID],
+            DocumentName="AWS-RunShellScript",
+            Parameters={"commands": hpc_commands(run_id, zcu["private_ip"], esc, auto_stop)},
+            TimeoutSeconds=600,
+        )["Command"]["CommandId"]
+    except ClientError as exc:
+        err = exc.response.get("Error", {})
+        code = err.get("Code", "AWSClientError")
+        message = err.get("Message", "AWS Systems Manager command failed")
+        return response(409, {"error": f"SSM command failed [{code}]: {message}", "instances": states})
 
     DDB.put_item(Item={
         "run_id": run_id,
@@ -142,8 +174,6 @@ def get_json(key):
     try:
         obj = S3.get_object(Bucket=BUCKET, Key=key)
         return json.loads(obj["Body"].read())
-    except S3.exceptions.NoSuchKey:
-        return None
     except Exception as exc:
         if getattr(exc, "response", {}).get("Error", {}).get("Code") in ("NoSuchKey", "404"):
             return None
@@ -180,9 +210,10 @@ def handler(event, context):
     path = event.get("rawPath", "")
     try:
         if method == "GET" and path == "/status":
+            ssm_map = ssm_statuses()
             return response(200, {
-                "x86_64": state(X86_ID, "ZCU / ESC controller"),
-                "arm64": state(ARM_ID, "HPC / vehicle simulator"),
+                "x86_64": state(X86_ID, "ZCU / ESC controller", ssm_map),
+                "arm64": state(ARM_ID, "HPC / vehicle simulator", ssm_map),
             })
 
         if method == "POST" and path.startswith("/instances/"):
@@ -208,6 +239,12 @@ def handler(event, context):
         return response(404, {"error": "not found"})
     except ValueError as exc:
         return response(400, {"error": str(exc)})
+    except ClientError as exc:
+        err = exc.response.get("Error", {})
+        code = err.get("Code", "AWSClientError")
+        message = err.get("Message", "AWS request failed")
+        print(repr(exc))
+        return response(502, {"error": f"AWS error [{code}]: {message}"})
     except Exception as exc:
         print(repr(exc))
-        return response(500, {"error": "internal error"})
+        return response(500, {"error": f"control-plane error: {type(exc).__name__}"})
