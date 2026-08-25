@@ -2,13 +2,32 @@ const $ = id => document.getElementById(id);
 const apiBase = $('apiBase');
 const token = $('token');
 const globalStatus = $('globalStatus');
+const runStatus = $('runStatus');
 
-apiBase.value = window.APP_CONFIG?.apiBase || sessionStorage.getItem('apiBase') || '';
-token.value = sessionStorage.getItem('adminToken') || '';
+function storageGet(key) {
+  try { return window.sessionStorage ? sessionStorage.getItem(key) : null; }
+  catch { return null; }
+}
+
+function storageSet(key, value) {
+  try { if (window.sessionStorage) sessionStorage.setItem(key, value); }
+  catch { /* Storage may be blocked by browser privacy settings; dashboard still works. */ }
+}
+
+if (!apiBase || !token) {
+  throw new Error('Dashboard HTML is incomplete. Redeploy the dashboard files.');
+}
+
+apiBase.value = (window.APP_CONFIG && window.APP_CONFIG.apiBase) || storageGet('apiBase') || '';
+token.value = storageGet('adminToken') || '';
 
 function setStatus(message, type='info') {
-  globalStatus.textContent = message;
-  globalStatus.className = `status-banner ${type}`;
+  if (globalStatus) {
+    globalStatus.textContent = message;
+    globalStatus.className = `status-banner ${type}`;
+  }
+  if (runStatus) runStatus.textContent = message;
+  console.log(`[dashboard:${type}] ${message}`);
 }
 
 function cfg() {
@@ -46,9 +65,9 @@ async function call(path, options={}) {
 }
 
 $('saveConfig').onclick = async () => {
-  sessionStorage.setItem('apiBase', apiBase.value.trim());
-  sessionStorage.setItem('adminToken', token.value.trim());
-  setStatus('Configuration saved. Checking AWS worker status…', 'working');
+  storageSet('apiBase', apiBase.value.trim());
+  storageSet('adminToken', token.value.trim());
+  setStatus('Configuration accepted. Checking AWS worker status…', 'working');
   await refresh();
 };
 
@@ -60,12 +79,9 @@ async function refresh() {
     $('x86Type').textContent = `${s.x86_64.instance_type} · ${s.x86_64.architecture}`;
     $('armState').textContent = s.arm64.state;
     $('armType').textContent = `${s.arm64.instance_type} · ${s.arm64.architecture}`;
-    const summary = `Connected. x86: ${s.x86_64.state} · Graviton: ${s.arm64.state}`;
-    setStatus(summary, 'success');
-    $('runStatus').textContent = summary;
+    setStatus(`Connected. x86: ${s.x86_64.state} · Graviton: ${s.arm64.state}`, 'success');
   } catch (e) {
     setStatus(e.message, 'error');
-    $('runStatus').textContent = e.message;
   }
 }
 
@@ -76,13 +92,10 @@ async function fleetAction(action) {
       call(`/instances/x86_64/${action}`, {method:'POST'}),
       call(`/instances/arm64/${action}`, {method:'POST'})
     ]);
-    const message = `${action} requested for both workers. AWS state changes can take a short time.`;
-    setStatus(message, 'success');
-    $('runStatus').textContent = message;
+    setStatus(`${action} requested for both workers. AWS state changes can take a short time.`, 'success');
     setTimeout(refresh, 3000);
   } catch(e) {
     setStatus(e.message, 'error');
-    $('runStatus').textContent = e.message;
   }
 }
 
@@ -94,13 +107,10 @@ document.querySelectorAll('[data-arch]').forEach(b => b.onclick = async () => {
   try {
     setStatus(`${b.dataset.action === 'start' ? 'Starting' : 'Stopping'} ${b.dataset.arch}…`, 'working');
     await call(`/instances/${b.dataset.arch}/${b.dataset.action}`, {method:'POST'});
-    const message = `${b.dataset.action} requested for ${b.dataset.arch}.`;
-    setStatus(message, 'success');
-    $('runStatus').textContent = message;
+    setStatus(`${b.dataset.action} requested for ${b.dataset.arch}.`, 'success');
     setTimeout(refresh, 3000);
   } catch(e) {
     setStatus(e.message, 'error');
-    $('runStatus').textContent = e.message;
   }
 });
 
@@ -115,24 +125,17 @@ async function poll(runId) {
       if (r.complete) {
         $('results').innerHTML = row('x86_64', r.x86_64) + row('ARM64 / Graviton', r.arm64);
         $('comparison').textContent = `ARM/x86 throughput ratio: ${r.comparison.arm_vs_x86_throughput_ratio}× · Faster: ${r.comparison.faster_architecture}`;
-        const message = `Run ${runId} complete.`;
-        setStatus(message, 'success');
-        $('runStatus').textContent = message;
+        setStatus(`Run ${runId} complete.`, 'success');
         return;
       }
-      const message = `Run ${runId} is executing…`;
-      setStatus(message, 'working');
-      $('runStatus').textContent = message;
+      setStatus(`Run ${runId} is executing…`, 'working');
     } catch (e) {
       setStatus(e.message, 'error');
-      $('runStatus').textContent = e.message;
       return;
     }
     await new Promise(resolve => setTimeout(resolve, 5000));
   }
-  const message = 'Timed out waiting for results; refresh status and try the result again later.';
-  setStatus(message, 'error');
-  $('runStatus').textContent = message;
+  setStatus('Timed out waiting for results; refresh status and try the result again later.', 'error');
 }
 
 $('run').onclick = async () => {
@@ -145,20 +148,12 @@ $('run').onclick = async () => {
       auto_stop:$('autoStop').checked
     };
     const r = await call('/benchmark/run', {method:'POST', body:JSON.stringify(body)});
-    const message = `Started ${r.run_id}`;
-    setStatus(message, 'working');
-    $('runStatus').textContent = message;
+    setStatus(`Started ${r.run_id}`, 'working');
     poll(r.run_id);
   } catch(e) {
     setStatus(e.message, 'error');
-    $('runStatus').textContent = e.message;
   }
 };
 
-if (!apiBase.value) {
-  setStatus('Dashboard API URL is missing. Run the dashboard update/deploy script.', 'error');
-} else if (!token.value) {
-  setStatus('Enter your admin token above and click Use configuration.', 'info');
-} else {
-  refresh();
-}
+setStatus('Dashboard JavaScript loaded. Enter/confirm the admin token and click Use configuration.', 'info');
+if (apiBase.value && token.value) refresh();
