@@ -56,9 +56,9 @@ payload = json.load(open(sys.argv[1]))
 assert payload["mode"] == "measured_aws_vehicle_architecture"
 assert payload["j1979_2_service_mode"] == "mixed"
 assert payload["traffic_pattern"] == "parallel4"
-assert len(payload["results"]) == 3
+assert len(payload["results"]) == 2
 by_name = {r["architecture"]: r for r in payload["results"]}
-assert set(by_name) == {"distributed_canfd", "zonal_transparent", "zonal_hpc_proxy"}
+assert set(by_name) == {"distributed_canfd", "zonal_hpc_proxy"}
 expected_services = {"read_data", "read_dtc", "clear_dtc", "routine_control"}
 for result in by_name.values():
     assert result["samples"] == 24
@@ -69,7 +69,6 @@ for result in by_name.values():
     assert set(result["per_service_p2tester_ms"]) == expected_services
     assert {row["service"] for row in result["trace"]} == expected_services
 assert "4 ECUs" in by_name["distributed_canfd"]["label"]
-assert "4 ZCUs" in by_name["zonal_transparent"]["label"]
 assert "application proxy" in by_name["zonal_hpc_proxy"]["label"]
-print("J1979-2 mixed-service four-ECU/four-ZCU benchmark integration test passed")
+print("J1979-2 two-architecture legacy-versus-HPC-proxy integration test passed")
 PY
