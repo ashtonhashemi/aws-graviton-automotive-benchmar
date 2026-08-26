@@ -1,112 +1,223 @@
 (() => {
-  const byId = id => document.getElementById(id);
-  const measuredView = byId('p2MeasuredView');
+  const $ = id => document.getElementById(id);
+  const measuredView = $('p2MeasuredView');
   if (!measuredView) return;
 
+  // Keep one concise benchmark description. Detailed caveats live with the settings.
+  measuredView.querySelector('.measured-note')?.remove();
+  const intro = document.querySelector('#p2Lab .lab-intro');
+  if (intro) {
+    intro.innerHTML = `
+      <p class="eyebrow">Measured AWS benchmark</p>
+      <h2>Legacy Distributed vs Zonal HPC</h2>
+      <p>Compare tester-observed P2 timing across the same four diagnostic endpoints.</p>`;
+  }
+
+  // Architecture: two compact cards, no repeated prose.
   const paths = measuredView.querySelector('.architecture-paths');
   if (paths) {
+    paths.className = 'panel benchmark-architecture';
     paths.innerHTML = `
-      <h2>Benchmark Architecture Diagrams</h2>
-      <div class="chart-card">
-        <h3>Legacy distributed E/E architecture</h3>
-        <pre style="overflow:auto;line-height:1.55">External OBD Tester
-        │  DoIP / J1979-2 service request
-        ▼
+      <div class="section-heading">
+        <div><p class="eyebrow">01 · Architecture</p><h2>Vehicle Network Under Test</h2></div>
+        <span class="test-badge">DoIP · J1979-2 service traffic</span>
+      </div>
+      <div class="architecture-grid">
+        <article class="architecture-card">
+          <h3>Legacy distributed</h3>
+          <pre>Tester
+  │ DoIP
+  ▼
 Central Gateway
-   ├──── CAN-FD Bus A ──── ECU 1
-   │                    └─ ECU 2
-   ├──── CAN-FD Bus B ──── ECU 3
-   └──── CAN-FD Bus C ──── ECU 4</pre>
-      </div>
-      <div class="chart-card">
-        <h3>Zonal / HPC architecture</h3>
-        <pre style="overflow:auto;line-height:1.55">External OBD Tester
-        │  DoIP / J1979-2 service request
-        ▼
-AWS Graviton HPC
-   ├──── Automotive Ethernet ──── ZCU 1
-   ├──── Automotive Ethernet ──── ZCU 2
-   ├──── Automotive Ethernet ──── ZCU 3
-   └──── Automotive Ethernet ──── ZCU 4
-
-Transparent mode: HPC routes the diagnostic message.
-Application-proxy mode: HPC terminates, interprets and reissues the request.</pre>
-      </div>
-      <p class="small-note">The AWS VPC path is real. CAN-FD and in-vehicle Ethernet serialization/load are controlled timing overlays; no physical CAN or automotive Ethernet PHY is claimed.</p>`;
+  ├─ CAN-FD A ─ ECU 1
+  │            └ ECU 2
+  ├─ CAN-FD B ─ ECU 3
+  └─ CAN-FD C ─ ECU 4</pre>
+        </article>
+        <article class="architecture-card">
+          <h3>Zonal / HPC</h3>
+          <pre>Tester
+  │ DoIP
+  ▼
+Graviton HPC
+  ├─ Ethernet ─ ZCU 1
+  ├─ Ethernet ─ ZCU 2
+  ├─ Ethernet ─ ZCU 3
+  └─ Ethernet ─ ZCU 4</pre>
+          <div class="mode-tags"><span>Transparent routing</span><span>Application proxy</span></div>
+        </article>
+      </div>`;
   }
 
-  const configSection = byId('mp2Architecture')?.closest('section');
-  if (!configSection) return;
-
-  const oldCanLoad = byId('mp2CanLoad');
-  if (oldCanLoad?.closest('label')) oldCanLoad.closest('label').hidden = true;
-
-  const controls = document.createElement('div');
-  controls.innerHTML = `
-    <hr />
-    <h3>SAE J1979-2 Service Traffic</h3>
-    <div class="form-row">
-      <label>J1979-2 service
-        <select id="mp2J1979Service">
-          <option value="mixed" selected>Mixed — 0x22 / 0x19 / 0x31 / 0x14</option>
-          <option value="read_data">0x22 ReadDataByIdentifier</option>
-          <option value="read_dtc">0x19 ReadDTCInformation</option>
-          <option value="clear_dtc">0x14 ClearDiagnosticInformation</option>
-          <option value="routine_control">0x31 RoutineControl</option>
-        </select>
-      </label>
-      <label>Tester traffic pattern
-        <select id="mp2TrafficPattern">
-          <option value="round_robin" selected>Sequential round-robin across 4 servers</option>
-          <option value="parallel4">4-way concurrent requests</option>
-        </select>
-      </label>
-    </div>
-    <p class="small-note">Service IDs follow the OBDonUDS service set. Lab DIDs, DTC records and routine values are synthetic; this is a timing/integration harness, not an SAE J1979-2/J1979DA conformance test.</p>
-
-    <h3>Legacy Network — Three CAN-FD Buses</h3>
-    <div class="form-row">
-      <label>Bus A load — ECU 1 + 2 (%)<input id="mp2CanLoadA" type="number" min="0" max="90" step="5" value="50" /></label>
-      <label>Bus B load — ECU 3 (%)<input id="mp2CanLoadB" type="number" min="0" max="90" step="5" value="30" /></label>
-      <label>Bus C load — ECU 4 (%)<input id="mp2CanLoadC" type="number" min="0" max="90" step="5" value="15" /></label>
-    </div>
-
-    <h3>Zonal Network — Automotive Ethernet Overlay</h3>
-    <div class="form-row">
-      <label>Ethernet link rate
-        <select id="mp2EthRate"><option value="100">100 Mbit/s</option><option value="1000" selected>1 Gbit/s</option></select>
-      </label>
-      <label>Ethernet link load (%)<input id="mp2EthLoad" type="number" min="0" max="90" step="5" value="20" /></label>
-    </div>
-
-    <h3>Compute / SoC Load Emulation</h3>
-    <div class="form-row">
-      <label>Legacy gateway CPU pressure (%)<input id="mp2GatewayCpu" type="number" min="0" max="95" step="5" value="10" /></label>
-      <label>Legacy ECU CPU pressure (%)<input id="mp2LegacyEcuCpu" type="number" min="0" max="95" step="5" value="20" /></label>
-      <label>Graviton HPC CPU pressure (%)<input id="mp2HpcCpu" type="number" min="0" max="95" step="5" value="20" /></label>
-      <label>ZCU CPU pressure (%)<input id="mp2ZcuCpu" type="number" min="0" max="95" step="5" value="20" /></label>
-    </div>
-    <p class="small-note">These controls create synthetic CPU pressure on the actual EC2 hosts. The node cards above show the real EC2 instance type and CPU architecture used for each role.</p>`;
-  configSection.insertBefore(controls, byId('runP2Measured'));
-
-  const perServer = byId('p2MeasuredPerServer')?.closest('section');
-  if (perServer) {
-    const serviceSection = document.createElement('section');
-    serviceSection.className = 'panel';
-    serviceSection.innerHTML = '<h2>Per-Service P2Tester</h2><div id="p2MeasuredPerService" class="breakdown-grid"><p>No measured results yet.</p></div>';
-    perServer.insertAdjacentElement('afterend', serviceSection);
+  // Fleet: one table instead of five large cards plus a separate action panel.
+  const nodeGrid = measuredView.querySelector('.p2-node-grid');
+  const fleetActions = measuredView.querySelector('.fleet-actions');
+  if (nodeGrid) {
+    nodeGrid.className = 'panel fleet-panel';
+    nodeGrid.innerHTML = `
+      <div class="section-heading">
+        <div><p class="eyebrow">02 · Fleet</p><h2>EC2 Benchmark Nodes</h2></div>
+        <div id="benchmarkFleetActions"></div>
+      </div>
+      <div class="table-wrap">
+        <table class="fleet-table">
+          <thead><tr><th>Role</th><th>Status</th><th>Instance</th></tr></thead>
+          <tbody>
+            <tr><td>Tester</td><td id="p2TesterState">Unknown</td><td id="p2TesterType">—</td></tr>
+            <tr><td>Legacy gateway</td><td id="p2LegacyGatewayState">Unknown</td><td id="p2LegacyGatewayType">—</td></tr>
+            <tr><td>4 × Legacy ECU</td><td id="p2LegacyEcuState">Unknown</td><td id="p2LegacyEcuType">—</td></tr>
+            <tr><td>Graviton HPC</td><td id="p2HpcState">Unknown</td><td id="p2HpcType">—</td></tr>
+            <tr><td>4 × ZCU</td><td id="p2ZcuState">Unknown</td><td id="p2ZcuType">—</td></tr>
+          </tbody>
+        </table>
+      </div>`;
+    const slot = $('benchmarkFleetActions');
+    if (fleetActions && slot) {
+      fleetActions.classList.remove('panel');
+      fleetActions.classList.add('compact-actions');
+      slot.replaceWith(fleetActions);
+    }
   }
 
-  function num(id) { return Number(byId(id).value); }
+  // Replace the old base controls + injected controls with one organized settings panel.
+  const oldConfig = $('mp2Architecture')?.closest('section');
+  if (!oldConfig) return;
+  oldConfig.className = 'panel benchmark-settings';
+  oldConfig.innerHTML = `
+    <div class="section-heading">
+      <div><p class="eyebrow">03 · Configure</p><h2>Benchmark Settings</h2></div>
+      <span class="settings-count">All test controls</span>
+    </div>
+
+    <details class="setting-group" open>
+      <summary>Experiment & J1979-2 traffic</summary>
+      <div class="settings-grid">
+        <label>Architecture
+          <select id="mp2Architecture">
+            <option value="all">Compare all three</option>
+            <option value="distributed_canfd">Legacy distributed</option>
+            <option value="zonal_transparent">Zonal transparent</option>
+            <option value="zonal_hpc_proxy">Zonal application proxy</option>
+          </select>
+        </label>
+        <label>J1979-2 service
+          <select id="mp2J1979Service">
+            <option value="mixed" selected>Mixed: 0x22 / 0x19 / 0x31 / 0x14</option>
+            <option value="read_data">0x22 ReadDataByIdentifier</option>
+            <option value="read_dtc">0x19 ReadDTCInformation</option>
+            <option value="clear_dtc">0x14 ClearDiagnosticInformation</option>
+            <option value="routine_control">0x31 RoutineControl</option>
+          </select>
+        </label>
+        <label>Traffic pattern
+          <select id="mp2TrafficPattern">
+            <option value="round_robin" selected>Sequential round-robin</option>
+            <option value="parallel4">4-way concurrent</option>
+          </select>
+        </label>
+        <label>Requests / architecture<input id="mp2Samples" type="number" min="12" max="5000" step="4" value="500" /></label>
+        <label>P2Tester budget (ms)<input id="mp2Budget" type="number" min="1" max="5000" value="50" /></label>
+      </div>
+    </details>
+
+    <details class="setting-group" open>
+      <summary>Diagnostic server & compute load</summary>
+      <div class="settings-grid">
+        <label>ECU / ZCU processing profile
+          <select id="mp2Profile">
+            <option value="nominal">Nominal — 20 ms mean</option>
+            <option value="near_limit">Near-limit — 38 ms mean</option>
+            <option value="custom">Custom</option>
+          </select>
+        </label>
+        <label>HPC proxy workload (ms)<input id="mp2ProxyWork" type="number" min="0" max="50" step="0.1" value="0" /></label>
+        <label>Gateway CPU pressure (%)<input id="mp2GatewayCpu" type="number" min="0" max="95" step="5" value="10" /></label>
+        <label>Legacy ECU CPU pressure (%)<input id="mp2LegacyEcuCpu" type="number" min="0" max="95" step="5" value="20" /></label>
+        <label>Graviton HPC CPU pressure (%)<input id="mp2HpcCpu" type="number" min="0" max="95" step="5" value="20" /></label>
+        <label>ZCU CPU pressure (%)<input id="mp2ZcuCpu" type="number" min="0" max="95" step="5" value="20" /></label>
+      </div>
+      <div id="mp2Custom" class="settings-grid custom-settings" hidden>
+        <label>Processing mean (ms)<input id="mp2Mean" type="number" step="0.1" value="38" /></label>
+        <label>σ (ms)<input id="mp2Sigma" type="number" step="0.1" value="5" /></label>
+        <label>Minimum (ms)<input id="mp2Min" type="number" step="0.1" value="20" /></label>
+        <label>Maximum (ms)<input id="mp2Max" type="number" step="0.1" value="49" /></label>
+      </div>
+    </details>
+
+    <div class="network-settings-grid">
+      <details class="setting-group" open>
+        <summary>Legacy CAN-FD</summary>
+        <div class="settings-grid compact-grid">
+          <label>Bus A load — ECU 1 + 2 (%)<input id="mp2CanLoadA" type="number" min="0" max="90" step="5" value="50" /></label>
+          <label>Bus B load — ECU 3 (%)<input id="mp2CanLoadB" type="number" min="0" max="90" step="5" value="30" /></label>
+          <label>Bus C load — ECU 4 (%)<input id="mp2CanLoadC" type="number" min="0" max="90" step="5" value="15" /></label>
+          <label>Arbitration rate (kbit/s)<input id="mp2CanArb" type="number" min="125" max="1000" step="125" value="500" /></label>
+          <label>Data rate (Mbit/s)<input id="mp2CanData" type="number" min="1" max="8" step="1" value="2" /></label>
+        </div>
+      </details>
+
+      <details class="setting-group" open>
+        <summary>Zonal automotive Ethernet</summary>
+        <div class="settings-grid compact-grid">
+          <label>Link rate
+            <select id="mp2EthRate"><option value="100">100 Mbit/s</option><option value="1000" selected>1 Gbit/s</option></select>
+          </label>
+          <label>Link load (%)<input id="mp2EthLoad" type="number" min="0" max="90" step="5" value="20" /></label>
+        </div>
+      </details>
+    </div>
+
+    <div class="run-bar">
+      <label class="check"><span>Auto-stop EC2 nodes after run</span><input id="mp2AutoStop" type="checkbox" checked /></label>
+      <button id="runP2Measured">Run Benchmark</button>
+      <p id="p2MeasuredRunStatus">Start the fleet, then run.</p>
+    </div>
+    <p class="benchmark-caveat">Real AWS VPC + DoIP framing. CAN-FD/Ethernet load and vehicle-class CPU pressure are controlled emulations. J1979-2 data is synthetic; this is not a conformance test.</p>`;
+
+  const profile = $('mp2Profile');
+  const custom = $('mp2Custom');
+  profile.onchange = () => { custom.hidden = profile.value !== 'custom'; };
+
+  // Results: one summary plus expandable details; no repeated panels.
+  const resultsSection = $('p2MeasuredResults')?.closest('section');
+  if (resultsSection) {
+    resultsSection.classList.add('benchmark-results');
+    resultsSection.querySelector('h2').textContent = '04 · Results';
+  }
+
+  const perServerSection = $('p2MeasuredPerServer')?.closest('section');
+  if (perServerSection) {
+    perServerSection.className = 'panel result-details';
+    perServerSection.innerHTML = `
+      <details open>
+        <summary>Detailed breakdown</summary>
+        <h3>Per ECU / ZCU</h3>
+        <div id="p2MeasuredPerServer" class="breakdown-grid"><p>No measured results yet.</p></div>
+        <h3>Per J1979-2 service</h3>
+        <div id="p2MeasuredPerService" class="breakdown-grid"><p>No measured results yet.</p></div>
+      </details>`;
+  }
+
+  const histogramSection = $('p2MeasuredHistograms')?.closest('section');
+  if (histogramSection) {
+    histogramSection.className = 'panel result-details';
+    histogramSection.innerHTML = `
+      <details>
+        <summary>Latency distributions</summary>
+        <div id="p2MeasuredHistograms"></div>
+      </details>`;
+  }
+
+  function num(id) { return Number($(id).value); }
   function bodyV3() {
     const body = {
-      architecture: byId('mp2Architecture').value,
-      profile: byId('mp2Profile').value,
+      architecture: $('mp2Architecture').value,
+      profile: $('mp2Profile').value,
       budget_ms: num('mp2Budget'),
       samples: num('mp2Samples'),
       proxy_work_ms: num('mp2ProxyWork'),
-      j1979_service: byId('mp2J1979Service').value,
-      traffic_pattern: byId('mp2TrafficPattern').value,
+      j1979_service: $('mp2J1979Service').value,
+      traffic_pattern: $('mp2TrafficPattern').value,
       can_load_a: num('mp2CanLoadA') / 100,
       can_load_b: num('mp2CanLoadB') / 100,
       can_load_c: num('mp2CanLoadC') / 100,
@@ -118,7 +229,7 @@ Application-proxy mode: HPC terminates, interprets and reissues the request.</pr
       legacy_ecu_cpu_pressure_pct: num('mp2LegacyEcuCpu'),
       hpc_cpu_pressure_pct: num('mp2HpcCpu'),
       zcu_cpu_pressure_pct: num('mp2ZcuCpu'),
-      auto_stop: byId('mp2AutoStop').checked,
+      auto_stop: $('mp2AutoStop').checked,
     };
     if (body.profile === 'custom') {
       body.custom_server = {
@@ -130,7 +241,7 @@ Application-proxy mode: HPC terminates, interprets and reissues the request.</pr
   }
 
   function renderServices(results) {
-    const target = byId('p2MeasuredPerService');
+    const target = $('p2MeasuredPerService');
     if (!target) return;
     const labels = {
       read_data: '0x22 ReadDataByIdentifier',
@@ -147,15 +258,15 @@ Application-proxy mode: HPC terminates, interprets and reissues the request.</pr
   }
 
   async function pollV3(runId) {
-    const status = byId('p2MeasuredRunStatus');
+    const status = $('p2MeasuredRunStatus');
     for (let i = 0; i < 500; i++) {
       try {
         const envelope = await window.call(`/p2/measured/results/${runId}`);
         if (envelope.complete && envelope.result) {
           window.renderMeasured(envelope.result);
           renderServices(envelope.result.results || []);
-          status.textContent = `Measured run ${runId} complete.`;
-          window.setStatus('Measured J1979-2 architecture benchmark complete.', 'success');
+          status.textContent = `Run ${runId} complete.`;
+          window.setStatus('Measured architecture benchmark complete.', 'success');
           return;
         }
         if (envelope.error) {
@@ -163,7 +274,7 @@ Application-proxy mode: HPC terminates, interprets and reissues the request.</pr
           throw new Error(detail);
         }
         const commandText = Object.entries(envelope.commands || {}).map(([r, s]) => `${r}:${s.status}`).join(' · ');
-        status.textContent = `Run ${runId} executing… ${commandText}`;
+        status.textContent = `Running ${runId} · ${commandText}`;
       } catch (e) {
         status.textContent = e.message;
         window.setStatus(e.message, 'error');
@@ -174,19 +285,21 @@ Application-proxy mode: HPC terminates, interprets and reissues the request.</pr
     status.textContent = 'Timed out waiting for measured results.';
   }
 
-  const runButton = byId('runP2Measured');
-  runButton.onclick = async () => {
-    const status = byId('p2MeasuredRunStatus');
+  $('runP2Measured').onclick = async () => {
+    const status = $('p2MeasuredRunStatus');
     try {
       const body = bodyV3();
-      status.textContent = 'Launching configured legacy + zonal J1979-2 benchmark…';
-      window.setStatus('Starting measured J1979-2 architecture benchmark…', 'working');
+      status.textContent = 'Launching benchmark…';
+      window.setStatus('Starting measured architecture benchmark…', 'working');
       const result = await window.call('/p2/measured/run', {method: 'POST', body: JSON.stringify(body)});
-      status.textContent = `Run ${result.run_id} started on DoIP TCP/${result.port}.`;
+      status.textContent = `Run ${result.run_id} started · TCP/${result.port}`;
       pollV3(result.run_id);
     } catch (e) {
       status.textContent = e.message;
       window.setStatus(e.message, 'error');
     }
   };
+
+  // Repaint status after replacing the fleet DOM with compact rows.
+  if (window.refreshP2Nodes && $('apiBase')?.value && $('token')?.value) window.refreshP2Nodes();
 })();
