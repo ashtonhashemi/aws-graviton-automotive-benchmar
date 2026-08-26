@@ -1,177 +1,139 @@
-# AWS Graviton FMVSS 126 ESC SIL Benchmark
+# AWS Automotive Systems Lab — Graviton HPC, ESC SIL, and OBDonUDS Architecture Benchmark
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/ashtonhashemi/aws-graviton-automotive-benchmar?quickstart=1)
 
-A portfolio-scale automotive SIL project that runs the same **FMVSS No. 126-inspired Electronic Stability Control (ESC) Sine-with-Dwell simulation** on an x86_64 EC2 worker and an AWS Graviton ARM64 worker.
+This repository contains two automotive systems-engineering experiments on AWS:
 
-> This is an educational/engineering simulation inspired by the FMVSS No. 126 maneuver and performance metrics. It is **not** an FMVSS compliance or certification test.
+1. **Distributed ESC SIL** — an FMVSS 126-inspired closed-loop vehicle/ESC experiment using AWS Graviton and x86 EC2 nodes over real private-VPC UDP/IP.
+2. **Measured OBDonUDS architecture benchmark** — an 11-node comparison of a legacy central-gateway/distributed-ECU architecture against a Graviton HPC with four independent zonal controllers.
 
-## What is simulated
+These are engineering/research environments, not regulatory compliance or certification tools.
 
-- 80 km/h nominal entry speed.
-- 0.7 Hz Sine-with-Dwell steering maneuver with a 500 ms dwell at the second peak.
-- Simplified Slowly Increasing Steer characterization to estimate the steering-wheel angle corresponding to 0.3 g.
-- Simulated CAN signals for steering angle, vehicle speed, yaw rate, and lateral acceleration.
-- ESC controller that estimates desired yaw rate and commands a corrective yaw moment.
-- Simplified nonlinear bicycle vehicle plant with front/rear lateral tire-force saturation.
-- Simulated Ethernet/cloud telemetry packets at 100 ms intervals.
-- ESC ON/OFF comparison.
-- FMVSS-style yaw-decay checks at 1.0 s and 1.75 s after completion of steer.
-- FMVSS-style lateral-displacement check at 1.07 s after Beginning of Steer.
+## Experiment 1 — Distributed ESC SIL
 
-The model intentionally allows an **ESC OFF** run to become unstable enough to fail the simulated yaw-decay checks while the **ESC ON** controller stabilizes the same maneuver. CI regression tests enforce this behavior.
+The Graviton node runs the vehicle dynamics and Sine-with-Dwell maneuver while an x86 node represents the ZCU/ESC controller. The 100 Hz control loop crosses real bidirectional UDP/IPv4 inside the AWS VPC.
 
-## AWS experiment
+Measured outputs include yaw-rate decay, lateral displacement, packet loss, network RTT, deadline misses, and controller compute time. The maneuver is inspired by FMVSS No. 126 but is intentionally simplified and is not a certification test.
 
-The identical deterministic SIL workload runs on:
+## Experiment 2 — Measured OBDonUDS architecture benchmark
 
-- **x86_64 EC2:** `c7i.large`
-- **ARM64 / AWS Graviton:** `c8g.large`
+The benchmark asks a concrete architecture question: **how much tester-observed diagnostic response-time margin changes when four distributed diagnostic servers are moved behind a vehicle-centralized Graviton HPC and four ZCUs?**
 
-The dashboard reports both vehicle-level results and compute performance:
-
-- yaw-rate ratio at 1.0 s
-- yaw-rate ratio at 1.75 s
-- lateral displacement at 1.07 s
-- simulated ESC pass/fail
-- wall time
-- CPU time
-- simulation steps/second
-- memory usage
-- ARM/x86 throughput ratio
-- functional-result equality across architectures
-
-## Architecture
+### Legacy / distributed path
 
 ```mermaid
 flowchart LR
-  U[Engineer / Browser] --> CF[CloudFront ESC SIL Dashboard]
-  CF --> S3D[(Private S3 Dashboard Bucket)]
-  U -->|Admin token| API[API Gateway]
-  API --> L[Control Lambda]
-  L -->|Start / Stop| X[c7i x86_64 EC2]
-  L -->|Start / Stop| A[c8g Graviton ARM64 EC2]
-  L --> SSM[AWS Systems Manager]
-  SSM --> X
-  SSM --> A
-
-  subgraph SIL[FMVSS 126-inspired SIL workload on each EC2 worker]
-    SWD[Sine-with-Dwell steering] --> CAN[Simulated CAN signals]
-    CAN --> ESC[ESC controller]
-    ESC --> VEH[Vehicle bicycle model]
-    VEH --> CAN
-    VEH --> ETH[Simulated Ethernet telemetry]
-    ETH --> MET[Yaw decay + lateral displacement metrics]
-  end
-
-  X --> SIL
-  A --> SIL
-  X --> S3R[(S3 Results)]
-  A --> S3R
-  L --> DDB[(DynamoDB Run Metadata)]
-  U -->|Poll results| API
+    T[External OBD Tester EC2] --> G[Central Gateway EC2]
+    G -->|CAN-FD timing emulation| E1[ECU 1 EC2]
+    G -->|CAN-FD timing emulation| E2[ECU 2 EC2]
+    G -->|CAN-FD timing emulation| E3[ECU 3 EC2]
+    G -->|CAN-FD timing emulation| E4[ECU 4 EC2]
 ```
 
-Detailed Mermaid source: [`docs/architecture.mmd`](docs/architecture.mmd).
+### Zonal / vehicle-centralized path
 
-## Browser VS Code / Codespaces
+```mermaid
+flowchart LR
+    T[External OBD Tester EC2] --> H[ARM64 Graviton HPC EC2]
+    H --> Z1[ZCU 1 EC2]
+    H --> Z2[ZCU 2 EC2]
+    H --> Z3[ZCU 3 EC2]
+    H --> Z4[ZCU 4 EC2]
+```
 
-Open the Codespaces badge above. The dev container includes Python, AWS CLI, SAM CLI, GitHub CLI, `jq`, `make`, AWS Toolkit for VS Code, Python tooling, and YAML support.
+The zonal benchmark supports two HPC behaviors:
 
-Authenticate to AWS:
+- **Transparent routing:** the tester addresses a ZCU and the HPC forwards the DoIP diagnostic transaction without owning the diagnostic service.
+- **Application proxy:** the tester addresses an HPC proxy endpoint; the HPC terminates/parses the request, creates a new internal diagnostic transaction to the selected ZCU, waits for the ZCU response, and constructs the tester-facing response.
+
+### What is real vs emulated
+
+**Real AWS execution**
+
+- 11 independent EC2 nodes in one subnet / Availability Zone.
+- ARM64 AWS Graviton HPC (`c8g.large` default).
+- Fixed-performance x86 nodes (`c7i.large` default) for tester, legacy gateway, distributed ECUs, and ZCU simulation.
+- Real Linux scheduling and process execution.
+- Real private-VPC TCP/IP traffic.
+- DoIP common-header framing, TCP routing activation, and DoIP diagnostic-message payload type `0x8001`.
+- Raw UDS ReadDataByIdentifier timing stimulus (`22 F1 90` / `62 F1 90`).
+- Tester-observed P2 timing measured with a single-host monotonic clock.
+
+**Explicitly emulated / controlled**
+
+- CAN-FD serialization/contention timing between the legacy gateway and distributed ECUs.
+- ECU/ZCU diagnostic processing-time profiles.
+- Optional HPC application-proxy workload.
+
+AWS has no physical automotive CAN interface in this setup, so the CAN-FD path is intentionally identified as a timing emulator rather than physical CAN. The DoIP/UDS implementation is a timing research harness, not a complete ISO 13400 or SAE J1979-2 conformance implementation.
+
+### Benchmark outputs
+
+For each architecture the tester records:
+
+- mean P2Tester
+- P50 / P95 / P99 / maximum
+- percentage exceeding the selected timing budget
+- P99 pass/fail against the selected budget
+- per-ECU / per-ZCU P2Tester statistics
+- end-to-end sample traces
+
+The dashboard also exposes legacy CAN-FD arbitration rate, data-phase rate, modeled bus load, ECU/ZCU processing profile, and controlled HPC proxy workload.
+
+## AWS control plane
+
+AWS SAM / CloudFormation provisions the compute fleet, IAM, private security group, API Gateway, Lambda control plane, S3 results/dashboard buckets, DynamoDB run metadata, and CloudFront dashboard. EC2 nodes are controlled through AWS Systems Manager instead of SSH and are intended to remain stopped when experiments are not running.
+
+## Deploy from Codespaces
+
+Authenticate first:
 
 ```bash
-aws configure
 aws sts get-caller-identity
 ```
 
-or with IAM Identity Center:
+Then deploy/update:
 
 ```bash
-aws configure sso
-aws sso login
-aws sts get-caller-identity
-```
-
-Deploy or update the complete lab:
-
-```bash
+export ADMIN_TOKEN="$(cat ~/.aws-graviton-admin-token 2>/dev/null || true)"
 bash scripts/codespace-deploy.sh
 ```
 
-The helper selects the default VPC/public subnet in `us-west-2`, generates/saves the dashboard admin token when needed, deploys the SAM/CloudFormation stack, uploads the latest ESC SIL workload and dashboard, and prints the CloudFront dashboard URL.
+The deploy helper builds the SAM application, updates the CloudFormation stack, uploads runtime assets, refreshes the CloudFront dashboard, and prints the EC2 private IPs for both experiments.
 
-## Running the ESC experiment
-
-1. Open the CloudFront dashboard.
-2. Enter the saved admin token and click **Use configuration**.
-3. Click **Start Both** and wait for x86 and Graviton to report `running`.
-4. Select **ESC ON**, `baseline`, 100000 target simulation steps, and 3 iterations.
-5. Run the ESC simulation and compare vehicle-level and compute results.
-6. Repeat with **ESC OFF** to demonstrate the stability-control effect.
-7. Repeat ESC ON with `optimized` to compare software tuning on both architectures.
-8. Leave **Auto-stop workers** enabled or click **Stop Both** when finished.
-
-Retrieve the Codespaces token with:
-
-```bash
-cat ~/.aws-graviton-admin-token
-```
-
-Update only dashboard files after frontend changes:
-
-```bash
-bash scripts/update-dashboard.sh
-```
-
-Stop compute:
+Stop every EC2 lab node:
 
 ```bash
 bash scripts/stop-workers.sh
 ```
 
-Delete the entire lab:
+Delete the complete lab:
 
 ```bash
 bash scripts/destroy.sh
 ```
 
-## Repository layout
-
-```text
-benchmark/          FMVSS 126-inspired ESC SIL simulation
-infra/              AWS SAM / CloudFormation infrastructure
-src/control/        Lambda dashboard/control-plane API
-dashboard/          ESC SIL + compute comparison dashboard
-docs/               Architecture and tuning notes
-tests/              Vehicle-level regression checks
-scripts/             Deploy, update, stop, destroy, Codespaces helpers
-.devcontainer/       Browser VS Code environment
-.github/workflows/  Functional smoke tests + SAM validation
-```
-
-## Functional regression
+## CI / regression
 
 ```bash
 make test
 ```
 
-The regression requires:
+CI compiles the Lambda/control code and DoIP benchmark programs, runs the ESC and four-ECU/four-ZCU integration tests, validates dashboard JavaScript, and runs SAM template validation/linting.
 
-- ESC ON stability at 1.0 s: pass
-- ESC ON stability at 1.75 s: pass
-- ESC ON responsiveness: pass
-- ESC OFF overall simulated result: fail
-- baseline and optimized modes: identical vehicle-level output
+## Repository layout
 
-## FMVSS No. 126 basis
+```text
+benchmark/                         ESC reference workload
+diagnostic_timing/                P2 timing model + measured DoIP benchmark
+diagnostic_timing/aws_measured/   DoIP codec, ECU/ZCU server, gateway/HPC router, tester
+infra/                             AWS SAM / CloudFormation infrastructure
+src/control/                       Lambda dashboard/control-plane API
+dashboard/                         ESC + OBDonUDS architecture dashboard
+tests/                             Regression and network integration tests
+scripts/                           Deploy, stop, destroy, and Codespaces helpers
+```
 
-The project uses selected concepts from the NHTSA FMVSS No. 126 Sine-with-Dwell procedure: the 0.7 Hz input, 500 ms dwell, approximately 80 km/h entry condition, yaw-rate decay criteria, and lateral-displacement responsiveness metric. Real FMVSS testing includes detailed vehicle preparation, instrumentation, filtering, Slowly Increasing Steer runs, left/right test series, steering-amplitude progression, equipment requirements, and other regulatory provisions that this simplified SIL model does not reproduce.
+## Scope statement
 
-## Security and cost scope
-
-This is a lab/portfolio control plane, not a production fleet manager. EC2 workers have no inbound rules and are controlled through Systems Manager. The API uses a lab-only shared token stored as a `NoEcho` CloudFormation parameter. Workers can auto-stop after a run to reduce compute cost.
-
-## Portfolio statement
-
-> Developed an AWS-hosted ESC Software-in-the-Loop benchmark based on the FMVSS No. 126 Sine-with-Dwell maneuver, modeling CAN sensor traffic, closed-loop yaw control, vehicle dynamics, Ethernet telemetry, regulatory-style stability metrics, and identical execution on x86_64 and AWS Graviton ARM64 compute.
+The cloud environment is designed for repeatable architecture exploration and shift-left integration testing. It does not reproduce an automotive SoC, physical CAN/CAN-FD transceiver behavior, electrical-layer effects, or complete regulatory protocol conformance. Those require later HIL/vehicle validation.
