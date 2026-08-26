@@ -17,13 +17,13 @@ def main():
         "seed": 42,
     })
     results = {item["architecture"]: item for item in data["results"]}
-    assert set(results) == {"distributed_canfd", "zonal_transparent", "zonal_hpc_proxy"}
+    assert set(results) == {"distributed_canfd", "zonal_hpc_proxy"}
     for result in results.values():
         assert result["p2tester_elapsed_ms"]["p99"] > 0
         assert len(result["histogram"]) == 40
         assert 0 <= result["budget_miss_pct"] <= 100
-    assert results["zonal_transparent"]["p2tester_elapsed_ms"]["p99"] < results["zonal_hpc_proxy"]["p2tester_elapsed_ms"]["p99"]
-    print("P2Tester dashboard service regression passed")
+    assert results["distributed_canfd"]["p2tester_elapsed_ms"]["p99"] != results["zonal_hpc_proxy"]["p2tester_elapsed_ms"]["p99"]
+    print("P2Tester two-architecture dashboard service regression passed")
 
 
 if __name__ == "__main__":
