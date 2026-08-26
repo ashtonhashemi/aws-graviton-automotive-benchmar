@@ -38,14 +38,6 @@ ARCHITECTURES = {
             "CAN-FD last-mile RTT": LogNormalMs(1.20, 0.50, 0.15, 8.0),
         },
     },
-    "zonal_transparent": {
-        "label": "Zonal transparent Ethernet",
-        "components": {
-            "Tester / DoIP RTT": LogNormalMs(0.25, 0.35, 0.05, 1.5),
-            "Ethernet switching RTT": LogNormalMs(0.24, 0.35, 0.03, 2.4),
-            "Zone forwarding RTT": LogNormalMs(0.15, 0.40, 0.02, 1.2),
-        },
-    },
     "zonal_hpc_proxy": {
         "label": "Zonal HPC diagnostic proxy",
         "components": {
@@ -79,11 +71,7 @@ def histogram(values: list[float], budget_ms: float) -> list[dict]:
         idx = min(bins - 1, int(value / width))
         counts[idx] += 1
     return [
-        {
-            "from_ms": round(i * width, 2),
-            "to_ms": round((i + 1) * width, 2),
-            "count": count,
-        }
+        {"from_ms": round(i * width, 2), "to_ms": round((i + 1) * width, 2), "count": count}
         for i, count in enumerate(counts)
     ]
 
