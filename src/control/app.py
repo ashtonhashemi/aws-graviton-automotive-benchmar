@@ -16,25 +16,38 @@ DDB = boto3.resource("dynamodb").Table(os.environ["RESULTS_TABLE"])
 BUCKET = os.environ["RESULTS_BUCKET"]
 X86_ID = os.environ["X86_INSTANCE_ID"]
 ARM_ID = os.environ["ARM_INSTANCE_ID"]
-P2_TESTER_ID = os.environ["P2_TESTER_INSTANCE_ID"]
-P2_HPC_ID = os.environ["P2_HPC_INSTANCE_ID"]
-P2_ZONE_ID = os.environ["P2_ZONE_INSTANCE_ID"]
-P2_TARGET_ID = os.environ["P2_TARGET_INSTANCE_ID"]
 ADMIN_TOKEN = os.environ["ADMIN_TOKEN"]
 UDP_PORT = 5005
 P2_PORT = 13400
+
 P2_IDS = {
-    "tester": P2_TESTER_ID,
-    "hpc": P2_HPC_ID,
-    "zone": P2_ZONE_ID,
-    "target": P2_TARGET_ID,
+    "tester": os.environ["P2_TESTER_INSTANCE_ID"],
+    "legacy_gateway": os.environ["P2_LEGACY_GATEWAY_INSTANCE_ID"],
+    "legacy_ecu1": os.environ["P2_LEGACY_ECU1_INSTANCE_ID"],
+    "legacy_ecu2": os.environ["P2_LEGACY_ECU2_INSTANCE_ID"],
+    "legacy_ecu3": os.environ["P2_LEGACY_ECU3_INSTANCE_ID"],
+    "legacy_ecu4": os.environ["P2_LEGACY_ECU4_INSTANCE_ID"],
+    "hpc": os.environ["P2_HPC_INSTANCE_ID"],
+    "zcu1": os.environ["P2_ZCU1_INSTANCE_ID"],
+    "zcu2": os.environ["P2_ZCU2_INSTANCE_ID"],
+    "zcu3": os.environ["P2_ZCU3_INSTANCE_ID"],
+    "zcu4": os.environ["P2_ZCU4_INSTANCE_ID"],
 }
+LEGACY_ECU_KEYS = tuple(f"legacy_ecu{i}" for i in range(1, 5))
+ZCU_KEYS = tuple(f"zcu{i}" for i in range(1, 5))
 ALL_INSTANCE_IDS = {X86_ID, ARM_ID, *P2_IDS.values()}
 P2_ROLES = {
-    "tester": "External OBDonUDS-style tester",
-    "hpc": "HPC diagnostic router / proxy",
-    "zone": "Zone controller diagnostic relay",
-    "target": "Target ECU simulator",
+    "tester": "External OBDonUDS tester",
+    "legacy_gateway": "Legacy central diagnostic gateway",
+    "legacy_ecu1": "Distributed ECU 1 diagnostic server",
+    "legacy_ecu2": "Distributed ECU 2 diagnostic server",
+    "legacy_ecu3": "Distributed ECU 3 diagnostic server",
+    "legacy_ecu4": "Distributed ECU 4 diagnostic server",
+    "hpc": "Graviton zonal HPC router / application proxy",
+    "zcu1": "ZCU 1 diagnostic server",
+    "zcu2": "ZCU 2 diagnostic server",
+    "zcu3": "ZCU 3 diagnostic server",
+    "zcu4": "ZCU 4 diagnostic server",
 }
 P2_PROFILES = {
     "nominal": {"mean_ms": 20.0, "sigma_ms": 7.0, "minimum_ms": 3.0, "maximum_ms": 45.0},
@@ -146,7 +159,6 @@ def run_benchmark(body):
     zcu = state(X86_ID, "x86 EC2 ZCU / ESC controller", ssm_map)
     hpc = state(ARM_ID, "Graviton HPC / vehicle and FMVSS maneuver simulator", ssm_map)
     states = {"zcu": zcu, "hpc": hpc}
-
     if zcu["state"] != "running" or hpc["state"] != "running":
         return response(409, {"error": "Both the Graviton HPC and x86 ZCU must be running", "instances": states})
     if zcu["ssm_ping_status"] != "Online" or hpc["ssm_ping_status"] != "Online":
@@ -160,42 +172,26 @@ def run_benchmark(body):
     run_id = str(uuid.uuid4())
     try:
         zcu_cmd = SSM.send_command(
-            InstanceIds=[X86_ID],
-            DocumentName="AWS-RunShellScript",
-            Parameters={"commands": zcu_commands(run_id, esc, auto_stop)},
-            TimeoutSeconds=600,
+            InstanceIds=[X86_ID], DocumentName="AWS-RunShellScript",
+            Parameters={"commands": zcu_commands(run_id, esc, auto_stop)}, TimeoutSeconds=600,
         )["Command"]["CommandId"]
         hpc_cmd = SSM.send_command(
-            InstanceIds=[ARM_ID],
-            DocumentName="AWS-RunShellScript",
-            Parameters={"commands": hpc_commands(run_id, zcu["private_ip"], esc, auto_stop)},
-            TimeoutSeconds=600,
+            InstanceIds=[ARM_ID], DocumentName="AWS-RunShellScript",
+            Parameters={"commands": hpc_commands(run_id, zcu["private_ip"], esc, auto_stop)}, TimeoutSeconds=600,
         )["Command"]["CommandId"]
     except ClientError as exc:
         err = exc.response.get("Error", {})
-        code = err.get("Code", "AWSClientError")
-        message = err.get("Message", "AWS Systems Manager command failed")
-        return response(409, {"error": f"SSM command failed [{code}]: {message}", "instances": states})
+        return response(409, {"error": f"SSM command failed [{err.get('Code', 'AWSClientError')}]: {err.get('Message', 'unknown error')}", "instances": states})
 
     DDB.put_item(Item={
-        "run_id": run_id,
-        "created_at": int(time.time()),
-        "experiment": "esc_sil",
-        "esc": esc,
-        "auto_stop": auto_stop,
-        "transport": "UDP/IPv4 over AWS VPC",
-        "udp_port": UDP_PORT,
-        "zcu_instance_id": X86_ID,
-        "zcu_private_ip": zcu["private_ip"],
-        "hpc_instance_id": ARM_ID,
-        "zcu_command_id": zcu_cmd,
-        "hpc_command_id": hpc_cmd,
+        "run_id": run_id, "created_at": int(time.time()), "experiment": "esc_sil",
+        "esc": esc, "auto_stop": auto_stop, "transport": "UDP/IPv4 over AWS VPC", "udp_port": UDP_PORT,
+        "zcu_instance_id": X86_ID, "zcu_private_ip": zcu["private_ip"], "hpc_instance_id": ARM_ID,
+        "zcu_command_id": zcu_cmd, "hpc_command_id": hpc_cmd,
     })
     return response(202, {
-        "run_id": run_id,
-        "transport": "real UDP/IPv4 over AWS VPC Ethernet",
-        "zcu_private_ip": zcu["private_ip"],
-        "udp_port": UDP_PORT,
+        "run_id": run_id, "transport": "real UDP/IPv4 over AWS VPC Ethernet",
+        "zcu_private_ip": zcu["private_ip"], "udp_port": UDP_PORT,
         "commands": {"zcu": zcu_cmd, "hpc": hpc_cmd},
     })
 
@@ -219,14 +215,10 @@ def get_result(run_id):
     body = {"run": item, "hpc": hpc, "zcu": zcu, "complete": bool(hpc and zcu)}
     if hpc and zcu:
         body["network"] = {
-            "transport": hpc.get("transport"),
-            "packets_sent": hpc.get("packets_sent"),
-            "packets_received": hpc.get("packets_received"),
-            "packets_lost": hpc.get("packets_lost"),
-            "packet_loss_pct": hpc.get("packet_loss_pct"),
-            "rtt_ms_mean": hpc.get("network_rtt_ms_mean"),
-            "rtt_ms_p95": hpc.get("network_rtt_ms_p95"),
-            "rtt_ms_max": hpc.get("network_rtt_ms_max"),
+            "transport": hpc.get("transport"), "packets_sent": hpc.get("packets_sent"),
+            "packets_received": hpc.get("packets_received"), "packets_lost": hpc.get("packets_lost"),
+            "packet_loss_pct": hpc.get("packet_loss_pct"), "rtt_ms_mean": hpc.get("network_rtt_ms_mean"),
+            "rtt_ms_p95": hpc.get("network_rtt_ms_p95"), "rtt_ms_max": hpc.get("network_rtt_ms_max"),
             "deadline_misses": hpc.get("control_deadline_misses"),
         }
     return response(200, body)
@@ -251,16 +243,17 @@ def p2_profile(body):
         "maximum_ms": float(custom.get("maximum_ms", 49.0)),
     }
     if params["minimum_ms"] < 0 or params["maximum_ms"] < params["minimum_ms"] or params["sigma_ms"] < 0:
-        raise ValueError("invalid custom target ECU timing profile")
+        raise ValueError("invalid custom diagnostic-server timing profile")
     return profile, params
 
 
-def p2_server_commands(asset, command, auto_stop):
+def p2_process_commands(asset, command, auto_stop):
     commands = [
         "set -uo pipefail",
+        f"aws s3 cp s3://{BUCKET}/assets/doip_codec.py /tmp/doip_codec.py",
         f"aws s3 cp s3://{BUCKET}/assets/{asset} /tmp/{asset}",
         "code=0",
-        f"timeout 1000 {command} || code=$?",
+        f"timeout 1200 {command} || code=$?",
     ]
     if auto_stop:
         commands.append("sudo shutdown -h now || true")
@@ -268,15 +261,17 @@ def p2_server_commands(asset, command, auto_stop):
     return commands
 
 
-def p2_tester_commands(run_id, architecture, hpc_ip, zone_ip, samples, budget_ms, auto_stop):
+def p2_tester_commands(run_id, architecture, legacy_gateway_ip, hpc_ip, samples, budget_ms, auto_stop):
     out = f"/tmp/{run_id}-p2-measured.json"
     commands = [
         "set -euo pipefail",
+        f"aws s3 cp s3://{BUCKET}/assets/doip_codec.py /tmp/doip_codec.py",
         f"aws s3 cp s3://{BUCKET}/assets/p2_tester.py /tmp/p2_tester.py",
-        "sleep 3",
+        "sleep 5",
         (
-            f"python3 /tmp/p2_tester.py --architecture {architecture} --hpc-ip {hpc_ip} "
-            f"--zone-ip {zone_ip} --port {P2_PORT} --samples {samples} --budget-ms {budget_ms} --output {out}"
+            f"python3 /tmp/p2_tester.py --architecture {architecture} "
+            f"--legacy-gateway-ip {legacy_gateway_ip} --hpc-ip {hpc_ip} --port {P2_PORT} "
+            f"--samples {samples} --budget-ms {budget_ms} --output {out}"
         ),
         f"aws s3 cp {out} s3://{BUCKET}/results/{run_id}/p2-measured.json",
     ]
@@ -285,113 +280,132 @@ def p2_tester_commands(run_id, architecture, hpc_ip, zone_ip, samples, budget_ms
     return commands
 
 
+def send_ssm(instance_id, commands):
+    return SSM.send_command(
+        InstanceIds=[instance_id], DocumentName="AWS-RunShellScript",
+        Parameters={"commands": commands}, TimeoutSeconds=1500,
+    )["Command"]["CommandId"]
+
+
 def run_p2_measured(body):
     architecture = body.get("architecture", "all")
     if architecture not in ("all", "distributed_canfd", "zonal_transparent", "zonal_hpc_proxy"):
         raise ValueError("invalid measured architecture")
     samples = int(body.get("samples", 500))
-    if samples < 10 or samples > 5000:
-        raise ValueError("measured samples must be between 10 and 5000")
+    if samples < 12 or samples > 5000:
+        raise ValueError("measured samples must be between 12 and 5000")
     budget_ms = float(body.get("budget_ms", 50.0))
     if budget_ms <= 0 or budget_ms > 5000:
         raise ValueError("budget_ms must be > 0 and <= 5000")
     proxy_work_ms = float(body.get("proxy_work_ms", 0.0))
     if proxy_work_ms < 0 or proxy_work_ms > 50:
         raise ValueError("proxy_work_ms must be between 0 and 50")
+    can_load = float(body.get("can_load", 0.30))
+    if can_load < 0 or can_load >= 0.95:
+        raise ValueError("can_load must be >= 0 and < 0.95")
+    can_arb_bps = float(body.get("can_arb_bps", 500000.0))
+    can_data_bps = float(body.get("can_data_bps", 2000000.0))
+    if can_arb_bps <= 0 or can_data_bps <= 0:
+        raise ValueError("CAN-FD bit rates must be positive")
     auto_stop = bool(body.get("auto_stop", True))
     profile_name, profile = p2_profile(body)
 
     states = p2_states()
     if any(node["state"] != "running" for node in states.values()):
-        return response(409, {"error": "All four measured P2 nodes must be running", "instances": states})
+        return response(409, {"error": "All 11 measured benchmark nodes must be running", "instances": states})
     if any(node["ssm_ping_status"] != "Online" for node in states.values()):
         return response(409, {
-            "error": "Measured P2 EC2 nodes are running but not all are SSM Online yet. Refresh P2 node status and retry.",
+            "error": "Benchmark EC2 nodes are running but not all are SSM Online yet. Refresh P2 node status and retry.",
             "instances": states,
         })
     if any(not node.get("private_ip") for node in states.values()):
-        return response(409, {"error": "One or more measured P2 private IPs are unavailable", "instances": states})
+        return response(409, {"error": "One or more benchmark private IPs are unavailable", "instances": states})
 
     run_id = str(uuid.uuid4())
-    target_ip = states["target"]["private_ip"]
-    zone_ip = states["zone"]["private_ip"]
-    hpc_ip = states["hpc"]["private_ip"]
+    legacy_routes = []
+    hpc_routes = []
+    proxy_routes = []
+    for i in range(1, 5):
+        legacy_routes.append(f"--route 0x{0x1000+i:04X}={states[f'legacy_ecu{i}']['private_ip']}:{P2_PORT}")
+        hpc_routes.append(f"--route 0x{0x2000+i:04X}={states[f'zcu{i}']['private_ip']}:{P2_PORT}")
+        proxy_routes.append(
+            f"--proxy-route 0x{0x3000+i:04X}=0x{0x2000+i:04X}@{states[f'zcu{i}']['private_ip']}:{P2_PORT}"
+        )
 
-    target_cmd = (
-        f"python3 /tmp/p2_target_ecu.py --port {P2_PORT} --mean-ms {profile['mean_ms']} "
-        f"--sigma-ms {profile['sigma_ms']} --min-ms {profile['minimum_ms']} --max-ms {profile['maximum_ms']}"
-    )
-    zone_cmd = (
-        f"python3 /tmp/p2_relay.py --role zone --port {P2_PORT} --downstream-host {target_ip} "
-        f"--downstream-port {P2_PORT}"
-    )
-    hpc_cmd = (
-        f"python3 /tmp/p2_relay.py --role hpc --port {P2_PORT} --downstream-host {zone_ip} "
-        f"--downstream-port {P2_PORT} --proxy-work-ms {proxy_work_ms}"
-    )
-
+    command_ids = {}
     try:
-        target_command_id = SSM.send_command(
-            InstanceIds=[P2_TARGET_ID], DocumentName="AWS-RunShellScript",
-            Parameters={"commands": p2_server_commands("p2_target_ecu.py", target_cmd, auto_stop)},
-            TimeoutSeconds=1200,
-        )["Command"]["CommandId"]
-        zone_command_id = SSM.send_command(
-            InstanceIds=[P2_ZONE_ID], DocumentName="AWS-RunShellScript",
-            Parameters={"commands": p2_server_commands("p2_relay.py", zone_cmd, auto_stop)},
-            TimeoutSeconds=1200,
-        )["Command"]["CommandId"]
-        hpc_command_id = SSM.send_command(
-            InstanceIds=[P2_HPC_ID], DocumentName="AWS-RunShellScript",
-            Parameters={"commands": p2_server_commands("p2_relay.py", hpc_cmd, auto_stop)},
-            TimeoutSeconds=1200,
-        )["Command"]["CommandId"]
-        tester_command_id = SSM.send_command(
-            InstanceIds=[P2_TESTER_ID], DocumentName="AWS-RunShellScript",
-            Parameters={"commands": p2_tester_commands(
-                run_id, architecture, hpc_ip, zone_ip, samples, budget_ms, auto_stop
-            )},
-            TimeoutSeconds=1200,
-        )["Command"]["CommandId"]
+        for i, key in enumerate(LEGACY_ECU_KEYS, 1):
+            cmd = (
+                f"python3 /tmp/p2_diag_server.py --role legacy_ecu --zone-id {i} "
+                f"--logical-address 0x{0x1000+i:04X} --port {P2_PORT} "
+                f"--mean-ms {profile['mean_ms']} --sigma-ms {profile['sigma_ms']} "
+                f"--min-ms {profile['minimum_ms']} --max-ms {profile['maximum_ms']} --idle-timeout-s 120"
+            )
+            command_ids[key] = send_ssm(P2_IDS[key], p2_process_commands("p2_diag_server.py", cmd, auto_stop))
+
+        for i, key in enumerate(ZCU_KEYS, 1):
+            cmd = (
+                f"python3 /tmp/p2_diag_server.py --role zcu --zone-id {i} "
+                f"--logical-address 0x{0x2000+i:04X} --port {P2_PORT} "
+                f"--mean-ms {profile['mean_ms']} --sigma-ms {profile['sigma_ms']} "
+                f"--min-ms {profile['minimum_ms']} --max-ms {profile['maximum_ms']} --idle-timeout-s 120"
+            )
+            command_ids[key] = send_ssm(P2_IDS[key], p2_process_commands("p2_diag_server.py", cmd, auto_stop))
+
+        legacy_gateway_cmd = (
+            f"python3 /tmp/p2_router.py --role legacy_gateway --entity-address 0x0D00 --port {P2_PORT} "
+            + " ".join(legacy_routes)
+            + f" --can-arb-bps {can_arb_bps} --can-data-bps {can_data_bps} --can-load {can_load} --idle-timeout-s 120"
+        )
+        command_ids["legacy_gateway"] = send_ssm(
+            P2_IDS["legacy_gateway"], p2_process_commands("p2_router.py", legacy_gateway_cmd, auto_stop)
+        )
+
+        hpc_cmd = (
+            f"python3 /tmp/p2_router.py --role hpc --entity-address 0x0A00 --port {P2_PORT} "
+            + " ".join(hpc_routes + proxy_routes)
+            + f" --proxy-work-ms {proxy_work_ms} --idle-timeout-s 120"
+        )
+        command_ids["hpc"] = send_ssm(P2_IDS["hpc"], p2_process_commands("p2_router.py", hpc_cmd, auto_stop))
+
+        command_ids["tester"] = send_ssm(
+            P2_IDS["tester"],
+            p2_tester_commands(
+                run_id, architecture, states["legacy_gateway"]["private_ip"], states["hpc"]["private_ip"],
+                samples, budget_ms, auto_stop,
+            ),
+        )
     except ClientError as exc:
         err = exc.response.get("Error", {})
         return response(409, {
             "error": f"Measured P2 SSM launch failed [{err.get('Code', 'AWSClientError')}]: {err.get('Message', 'unknown error')}",
             "instances": states,
+            "commands_started": command_ids,
         })
 
-    command_ids = {
-        "target": target_command_id,
-        "zone": zone_command_id,
-        "hpc": hpc_command_id,
-        "tester": tester_command_id,
-    }
     DDB.put_item(Item={
         "run_id": run_id,
         "created_at": int(time.time()),
-        "experiment": "p2_measured",
+        "experiment": "p2_measured_v2",
         "architecture": architecture,
         "profile": profile_name,
         "samples": samples,
         "budget_ms": str(budget_ms),
         "proxy_work_ms": str(proxy_work_ms),
+        "can_load": str(can_load),
+        "can_arb_bps": str(can_arb_bps),
+        "can_data_bps": str(can_data_bps),
         "auto_stop": auto_stop,
-        "transport": "TCP/IPv4 over AWS VPC",
+        "transport": "DoIP framing over TCP/IPv4 on private AWS VPC; CAN-FD timing emulated on legacy gateway",
         "p2_port": P2_PORT,
         "p2_config_json": json.dumps(profile),
-        "tester_instance_id": P2_TESTER_ID,
-        "hpc_instance_id": P2_HPC_ID,
-        "zone_instance_id": P2_ZONE_ID,
-        "target_instance_id": P2_TARGET_ID,
-        "tester_command_id": tester_command_id,
-        "hpc_command_id": hpc_command_id,
-        "zone_command_id": zone_command_id,
-        "target_command_id": target_command_id,
+        "command_ids_json": json.dumps(command_ids),
+        "instance_ids_json": json.dumps(P2_IDS),
     })
     return response(202, {
         "run_id": run_id,
-        "mode": "measured_aws_vpc",
-        "transport": "real persistent TCP/IPv4 over private AWS VPC networking",
+        "mode": "measured_aws_vehicle_architecture",
+        "transport": "DoIP diagnostic messages over private AWS VPC TCP/13400",
         "port": P2_PORT,
         "architecture": architecture,
         "profile": profile_name,
@@ -417,25 +431,22 @@ def command_snapshot(command_id, instance_id):
 
 def get_p2_measured_result(run_id):
     item = DDB.get_item(Key={"run_id": run_id}).get("Item")
-    if not item or item.get("experiment") != "p2_measured":
+    if not item or item.get("experiment") != "p2_measured_v2":
         return response(404, {"error": "measured P2 run not found"})
     measured = get_json(f"results/{run_id}/p2-measured.json")
+    command_ids = json.loads(item.get("command_ids_json", "{}"))
+    instance_ids = json.loads(item.get("instance_ids_json", "{}"))
     commands = {
-        role: command_snapshot(item[f"{role}_command_id"], P2_IDS[role])
-        for role in ("tester", "hpc", "zone", "target")
+        role: command_snapshot(command_id, instance_ids[role])
+        for role, command_id in command_ids.items()
     }
     failed = {
         role: snap for role, snap in commands.items()
         if snap.get("status") in ("Failed", "TimedOut", "Cancelled", "Cancelling")
     }
-    body = {
-        "run": item,
-        "complete": measured is not None,
-        "result": measured,
-        "commands": commands,
-    }
+    body = {"run": item, "complete": measured is not None, "result": measured, "commands": commands}
     if failed and measured is None:
-        body["error"] = "One or more measured P2 node commands failed before a result was produced."
+        body["error"] = "One or more benchmark node commands failed before a result was produced."
         body["failed_commands"] = failed
     return response(200, body)
 
@@ -467,13 +478,10 @@ def handler(event, context):
 
         if method == "POST" and path == "/benchmark/run":
             return run_benchmark(request_json(event))
-
         if method == "GET" and path.startswith("/benchmark/results/"):
             return get_result(path.rsplit("/", 1)[-1])
-
         if method == "POST" and path == "/p2/simulate":
             return response(200, run_study(request_json(event)))
-
         if method == "GET" and path == "/p2/measured/status":
             return response(200, p2_states())
 
@@ -487,10 +495,8 @@ def handler(event, context):
 
         if method == "POST" and path == "/p2/measured/run":
             return run_p2_measured(request_json(event))
-
         if method == "GET" and path.startswith("/p2/measured/results/"):
             return get_p2_measured_result(path.rsplit("/", 1)[-1])
-
         return response(404, {"error": "not found"})
     except ValueError as exc:
         return response(400, {"error": str(exc)})
