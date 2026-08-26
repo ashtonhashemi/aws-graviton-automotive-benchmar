@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""External OBDonUDS-style tester for the measured AWS architecture benchmark."""
+"""External UDS-over-DoIP tester for the measured AWS architecture benchmark."""
 from __future__ import annotations
 
 import argparse
@@ -37,7 +37,7 @@ SERVICE_LABELS = {
     "read_dtc": "0x19 ReadDTCInformation",
     "clear_dtc": "0x14 ClearDiagnosticInformation",
     "routine_control": "0x31 RoutineControl",
-    "mixed": "Mixed J1979-2 service cycle",
+    "mixed": "Mixed UDS service cycle",
 }
 SERVICE_CYCLE = ("read_data", "read_dtc", "routine_control", "clear_dtc")
 
@@ -152,7 +152,7 @@ def one_request(sock: socket.socket, target: int, service: str, sequence: int, a
     }
 
 
-def run_architecture(name: str, first_hop: str, port: int, samples: int, budget_ms: float, j1979_service: str, traffic_pattern: str) -> dict:
+def run_architecture(name: str, first_hop: str, port: int, samples: int, budget_ms: float, uds_service: str, traffic_pattern: str) -> dict:
     elapsed_values: list[float] = []
     target_samples: dict[str, list[float]] = {str(i): [] for i in range(1, 5)}
     service_samples: dict[str, list[float]] = {key: [] for key in SERVICE_CYCLE}
@@ -185,7 +185,7 @@ def run_architecture(name: str, first_hop: str, port: int, samples: int, budget_
         with sock:
             for seq in range(samples):
                 server_index = seq % 4
-                service = service_for(seq, j1979_service)
+                service = service_for(seq, uds_service)
                 record(one_request(sock, targets[server_index], service, seq, name), server_index + 1)
     else:
         sockets = []
@@ -201,7 +201,7 @@ def run_architecture(name: str, first_hop: str, port: int, samples: int, budget_
                         seq = base + offset
                         if seq >= samples:
                             break
-                        service = service_for(seq, j1979_service)
+                        service = service_for(seq, uds_service)
                         future = pool.submit(one_request, sockets[offset], targets[offset], service, seq, name)
                         futures[future] = offset + 1
                     for future in as_completed(futures):
@@ -219,8 +219,8 @@ def run_architecture(name: str, first_hop: str, port: int, samples: int, budget_
         "architecture": name,
         "label": LABELS[name],
         "samples": samples,
-        "j1979_service": j1979_service,
-        "j1979_service_label": SERVICE_LABELS[j1979_service],
+        "uds_service": uds_service,
+        "uds_service_label": SERVICE_LABELS[uds_service],
         "traffic_pattern": traffic_pattern,
         "p2tester_budget_ms": budget_ms,
         "p2tester_elapsed_ms": summary(elapsed_values),
@@ -244,7 +244,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=13400)
     parser.add_argument("--samples", type=int, default=500)
     parser.add_argument("--budget-ms", type=float, default=50.0)
-    parser.add_argument("--j1979-service", choices=tuple(SERVICE_LABELS), default="mixed")
+    parser.add_argument("--uds-service", "--j1979-service", dest="uds_service", choices=tuple(SERVICE_LABELS), default="mixed")
     parser.add_argument("--traffic-pattern", choices=("round_robin", "parallel4"), default="round_robin")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
@@ -258,19 +258,19 @@ def main() -> None:
     results = []
     for name in names:
         first_hop = args.legacy_gateway_ip if name == "distributed_canfd" else args.hpc_ip
-        results.append(run_architecture(name, first_hop, args.port, args.samples, args.budget_ms, args.j1979_service, args.traffic_pattern))
+        results.append(run_architecture(name, first_hop, args.port, args.samples, args.budget_ms, args.uds_service, args.traffic_pattern))
 
     payload = {
-        "study": "Measured AWS SAE J1979-2 service-level architecture benchmark",
+        "study": "Measured AWS UDS-over-DoIP architecture benchmark",
         "mode": "measured_aws_vehicle_architecture",
-        "transport": "DoIP diagnostic-message framing over persistent TCP/IPv4 on private AWS VPC networking",
-        "j1979_2_service_mode": args.j1979_service,
+        "transport": "UDS diagnostic services in DoIP diagnostic-message frames over persistent TCP/IPv4 on private AWS VPC networking",
+        "uds_service_mode": args.uds_service,
         "traffic_pattern": args.traffic_pattern,
-        "protocol_note": "Research harness exercises UDS service patterns used by SAE J1979-2 (0x22, 0x19, 0x14, 0x31) inside DoIP diagnostic-message frames. Synthetic lab DIDs/DTCs/routine values are used; this is not a complete ISO 13400, ISO 14229, SAE J1979-2, or J1979DA conformance implementation.",
+        "protocol_note": "Research harness exercises UDS services 0x22, 0x19, 0x14, and 0x31 inside DoIP diagnostic-message frames with synthetic lab DIDs, DTCs, and routine identifiers. This is not an ISO 13400 or ISO 14229 conformance implementation.",
         "timing_note": "P2Tester is measured end-to-end only on the tester monotonic clock; no cross-host clock subtraction is used.",
         "topology": {
             "legacy": "Tester -> central gateway -> CAN-FD Bus A/B/C -> four distributed ECU diagnostic servers",
-            "zonal_proxy": "Tester -> Graviton HPC application proxy -> four ZCU diagnostic servers",
+            "zonal_proxy": "Tester -> Graviton HPC UDS application proxy -> four ZCU diagnostic servers",
         },
         "results": results,
     }
