@@ -48,6 +48,8 @@ aws s3 cp dashboard/index.html "s3://$DASHBOARD_BUCKET/index.html" \
   --content-type text/html --cache-control 'no-store,no-cache,must-revalidate,max-age=0' --region "$REGION"
 aws s3 cp dashboard/app.js "s3://$DASHBOARD_BUCKET/app.js" \
   --content-type application/javascript --cache-control 'no-store,no-cache,must-revalidate,max-age=0' --region "$REGION"
+aws s3 cp dashboard/benchmark_v3.js "s3://$DASHBOARD_BUCKET/benchmark_v3.js" \
+  --content-type application/javascript --cache-control 'no-store,no-cache,must-revalidate,max-age=0' --region "$REGION"
 aws s3 cp dashboard/style.css "s3://$DASHBOARD_BUCKET/style.css" \
   --content-type text/css --cache-control 'no-store,no-cache,must-revalidate,max-age=0' --region "$REGION"
 
@@ -56,7 +58,8 @@ python3 - "$API_URL" > "$TMP_CONFIG" <<'PY'
 import json, sys
 api_url = sys.argv[1]
 print(f"window.APP_CONFIG = {{ apiBase: {json.dumps(api_url)} }};")
-print("try { if (!sessionStorage.getItem('p2ModeMeasuredDefaultV2')) { sessionStorage.setItem('p2Mode', 'measured'); sessionStorage.setItem('p2ModeMeasuredDefaultV2', '1'); } } catch (_) {}")
+print("try { if (!sessionStorage.getItem('p2ModeMeasuredDefaultV3')) { sessionStorage.setItem('p2Mode', 'measured'); sessionStorage.setItem('p2ModeMeasuredDefaultV3', '1'); } } catch (_) {}")
+print("window.addEventListener('DOMContentLoaded', () => { const s=document.createElement('script'); s.src='benchmark_v3.js'; document.body.appendChild(s); });")
 PY
 aws s3 cp "$TMP_CONFIG" "s3://$DASHBOARD_BUCKET/config.js" \
   --content-type application/javascript --cache-control 'no-store,no-cache,must-revalidate,max-age=0' --region "$REGION"
@@ -76,13 +79,13 @@ ESC SIL:
   Graviton HPC: $(output GravitonHpcPrivateIp)
   x86 ZCU:      $(output X86ZcuPrivateIp)
 
-Measured OBDonUDS architecture benchmark:
+Measured SAE J1979-2 / OBDonUDS architecture benchmark:
   Tester:         $(output P2TesterPrivateIp)
   Legacy Gateway: $(output P2LegacyGatewayPrivateIp)
-  Legacy ECU 1:   $(output P2LegacyEcu1PrivateIp)
-  Legacy ECU 2:   $(output P2LegacyEcu2PrivateIp)
-  Legacy ECU 3:   $(output P2LegacyEcu3PrivateIp)
-  Legacy ECU 4:   $(output P2LegacyEcu4PrivateIp)
+  Legacy ECU 1:   $(output P2LegacyEcu1PrivateIp)  [CAN-FD Bus A]
+  Legacy ECU 2:   $(output P2LegacyEcu2PrivateIp)  [CAN-FD Bus A]
+  Legacy ECU 3:   $(output P2LegacyEcu3PrivateIp)  [CAN-FD Bus B]
+  Legacy ECU 4:   $(output P2LegacyEcu4PrivateIp)  [CAN-FD Bus C]
   Graviton HPC:   $(output P2HpcPrivateIp)
   ZCU 1:          $(output P2Zcu1PrivateIp)
   ZCU 2:          $(output P2Zcu2PrivateIp)
@@ -90,6 +93,8 @@ Measured OBDonUDS architecture benchmark:
   ZCU 4:          $(output P2Zcu4PrivateIp)
 
 Measured diagnostic transport: DoIP framing over private VPC TCP/13400.
-Legacy gateway-to-ECU CAN-FD behavior is explicitly timing-emulated; it is not a physical CAN interface.
+Dashboard controls: J1979-2 service, sequential/4-way traffic, three CAN-FD bus loads,
+CAN-FD bit rates, automotive-Ethernet rate/load, CPU pressure, server processing, proxy workload, and P2 budget.
+The J1979-2 service harness uses synthetic lab data and is not a conformance test.
 All EC2 lab nodes are intended to remain stopped when experiments are not running.
 EOF
