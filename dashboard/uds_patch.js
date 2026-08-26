@@ -22,30 +22,34 @@
       <div class="architecture-grid">
         <article class="architecture-card legacy-card">
           <div class="architecture-card-title">Distributed / Legacy</div>
-          <svg class="architecture-svg" viewBox="0 0 620 310" role="img" aria-label="Legacy distributed architecture: external diagnostic tester to central gateway to three CAN-FD buses and four ECUs">
-            <rect class="svg-node" x="20" y="120" width="105" height="62" rx="8"/><text class="svg-label" x="72" y="144">Diagnostic</text><text class="svg-label" x="72" y="162">Tester</text>
-            <line class="svg-doip" x1="125" y1="151" x2="185" y2="151"/><text class="svg-edge-label" x="155" y="136">UDS / DoIP</text>
-            <rect class="svg-node svg-gateway" x="185" y="108" width="120" height="86" rx="8"/><text class="svg-label" x="245" y="142">Central</text><text class="svg-label" x="245" y="161">Gateway</text>
-            <line class="svg-can" x1="305" y1="151" x2="350" y2="151"/><line class="svg-can" x1="350" y1="58" x2="350" y2="250"/>
-            <rect class="svg-bus" x="365" y="43" width="76" height="34" rx="6"/><text class="svg-bus-label" x="403" y="64">Bus A</text><line class="svg-can" x1="350" y1="60" x2="365" y2="60"/><line class="svg-can" x1="441" y1="60" x2="470" y2="60"/><line class="svg-can" x1="455" y1="60" x2="455" y2="112"/><line class="svg-can" x1="455" y1="112" x2="470" y2="112"/>
-            <rect class="svg-node svg-ecu" x="470" y="35" width="105" height="50" rx="7"/><text class="svg-label" x="522" y="65">ECU 1</text><rect class="svg-node svg-ecu" x="470" y="87" width="105" height="50" rx="7"/><text class="svg-label" x="522" y="117">ECU 2</text>
-            <rect class="svg-bus" x="365" y="157" width="76" height="34" rx="6"/><text class="svg-bus-label" x="403" y="178">Bus B</text><line class="svg-can" x1="350" y1="174" x2="365" y2="174"/><line class="svg-can" x1="441" y1="174" x2="470" y2="174"/><rect class="svg-node svg-ecu" x="470" y="149" width="105" height="50" rx="7"/><text class="svg-label" x="522" y="179">ECU 3</text>
-            <rect class="svg-bus" x="365" y="233" width="76" height="34" rx="6"/><text class="svg-bus-label" x="403" y="254">Bus C</text><line class="svg-can" x1="350" y1="250" x2="365" y2="250"/><line class="svg-can" x1="441" y1="250" x2="470" y2="250"/><rect class="svg-node svg-ecu" x="470" y="225" width="105" height="50" rx="7"/><text class="svg-label" x="522" y="255">ECU 4</text>
-            <text class="svg-network-note" x="350" y="295">CAN-FD</text>
+          <svg class="architecture-svg" viewBox="0 0 660 330" role="img" aria-label="Legacy distributed architecture on Amazon Linux 2023 x86_64 EC2 nodes: diagnostic tester to central gateway to three CAN-FD buses and four ECUs">
+            <rect class="svg-node" x="15" y="124" width="116" height="70" rx="8"/><text class="svg-label" x="73" y="146">Diagnostic Tester</text><text class="svg-sub-label" x="73" y="166">AL2023 · x86_64</text><text class="svg-sub-label" x="73" y="181">c7i.large</text>
+            <line class="svg-doip" x1="131" y1="159" x2="193" y2="159"/><text class="svg-edge-label" x="162" y="143">UDS / DoIP</text>
+            <rect class="svg-node svg-gateway" x="193" y="112" width="132" height="94" rx="8"/><text class="svg-label" x="259" y="140">Central Gateway</text><text class="svg-sub-label" x="259" y="160">AL2023 · x86_64</text><text class="svg-sub-label" x="259" y="177">c7i.large</text>
+            <line class="svg-can" x1="325" y1="159" x2="365" y2="159"/><line class="svg-can" x1="365" y1="62" x2="365" y2="268"/>
+            <rect class="svg-bus" x="380" y="47" width="76" height="34" rx="6"/><text class="svg-bus-label" x="418" y="68">Bus A</text><line class="svg-can" x1="365" y1="64" x2="380" y2="64"/><line class="svg-can" x1="456" y1="64" x2="485" y2="64"/><line class="svg-can" x1="470" y1="64" x2="470" y2="119"/><line class="svg-can" x1="470" y1="119" x2="485" y2="119"/>
+            <rect class="svg-node svg-ecu" x="485" y="30" width="150" height="62" rx="7"/><text class="svg-label" x="560" y="53">ECU 1</text><text class="svg-sub-label" x="560" y="72">AL2023 · x86_64 · c7i</text>
+            <rect class="svg-node svg-ecu" x="485" y="96" width="150" height="62" rx="7"/><text class="svg-label" x="560" y="119">ECU 2</text><text class="svg-sub-label" x="560" y="138">AL2023 · x86_64 · c7i</text>
+            <rect class="svg-bus" x="380" y="169" width="76" height="34" rx="6"/><text class="svg-bus-label" x="418" y="190">Bus B</text><line class="svg-can" x1="365" y1="186" x2="380" y2="186"/><line class="svg-can" x1="456" y1="186" x2="485" y2="186"/><rect class="svg-node svg-ecu" x="485" y="163" width="150" height="62" rx="7"/><text class="svg-label" x="560" y="186">ECU 3</text><text class="svg-sub-label" x="560" y="205">AL2023 · x86_64 · c7i</text>
+            <rect class="svg-bus" x="380" y="251" width="76" height="34" rx="6"/><text class="svg-bus-label" x="418" y="272">Bus C</text><line class="svg-can" x1="365" y1="268" x2="380" y2="268"/><line class="svg-can" x1="456" y1="268" x2="485" y2="268"/><rect class="svg-node svg-ecu" x="485" y="241" width="150" height="62" rx="7"/><text class="svg-label" x="560" y="264">ECU 4</text><text class="svg-sub-label" x="560" y="283">AL2023 · x86_64 · c7i</text>
+            <text class="svg-network-note" x="365" y="319">CAN-FD timing emulation</text>
           </svg>
         </article>
         <article class="architecture-card zonal-card">
           <div class="architecture-card-title">Zonal / HPC Application Proxy</div>
-          <svg class="architecture-svg" viewBox="0 0 680 310" role="img" aria-label="Zonal architecture: external diagnostic tester through a logical DoIP security edge to the Graviton HPC UDS application proxy and four ZCUs">
-            <rect class="svg-node" x="15" y="120" width="96" height="62" rx="8"/><text class="svg-label" x="63" y="144">Diagnostic</text><text class="svg-label" x="63" y="162">Tester</text>
-            <line class="svg-doip svg-doip-zonal" x1="111" y1="151" x2="146" y2="151"/><text class="svg-edge-label" x="128" y="136">UDS / DoIP</text>
-            <rect class="svg-node svg-gateway" x="146" y="111" width="112" height="80" rx="8"/><text class="svg-label" x="202" y="141">DoIP Edge</text><text class="svg-sub-label" x="202" y="162">security / routing</text>
-            <line class="svg-eth" x1="258" y1="151" x2="292" y2="151"/>
-            <rect class="svg-node svg-hpc" x="292" y="94" width="150" height="114" rx="9"/><text class="svg-label svg-hpc-label" x="367" y="128">Graviton HPC</text><text class="svg-label" x="367" y="151">UDS App Proxy</text><text class="svg-sub-label" x="367" y="176">terminate · process · reissue</text>
-            <line class="svg-eth" x1="442" y1="151" x2="478" y2="151"/><line class="svg-eth" x1="478" y1="50" x2="478" y2="258"/>
-            <line class="svg-eth" x1="478" y1="50" x2="560" y2="50"/><line class="svg-eth" x1="478" y1="118" x2="560" y2="118"/><line class="svg-eth" x1="478" y1="190" x2="560" y2="190"/><line class="svg-eth" x1="478" y1="258" x2="560" y2="258"/>
-            <rect class="svg-node svg-zcu" x="560" y="25" width="105" height="50" rx="7"/><text class="svg-label" x="612" y="55">ZCU 1</text><rect class="svg-node svg-zcu" x="560" y="93" width="105" height="50" rx="7"/><text class="svg-label" x="612" y="123">ZCU 2</text><rect class="svg-node svg-zcu" x="560" y="165" width="105" height="50" rx="7"/><text class="svg-label" x="612" y="195">ZCU 3</text><rect class="svg-node svg-zcu" x="560" y="233" width="105" height="50" rx="7"/><text class="svg-label" x="612" y="263">ZCU 4</text>
-            <text class="svg-network-note" x="478" y="295">Automotive Ethernet</text>
+          <svg class="architecture-svg" viewBox="0 0 730 330" role="img" aria-label="Zonal architecture: x86_64 diagnostic tester through a logical DoIP security edge to an Amazon Linux 2023 ARM64 Graviton HPC UDS application proxy and four x86_64 ZCUs">
+            <rect class="svg-node" x="10" y="124" width="112" height="70" rx="8"/><text class="svg-label" x="66" y="146">Diagnostic Tester</text><text class="svg-sub-label" x="66" y="166">AL2023 · x86_64</text><text class="svg-sub-label" x="66" y="181">c7i.large</text>
+            <line class="svg-doip svg-doip-zonal" x1="122" y1="159" x2="157" y2="159"/><text class="svg-edge-label" x="139" y="143">UDS / DoIP</text>
+            <rect class="svg-node svg-gateway" x="157" y="119" width="116" height="80" rx="8"/><text class="svg-label" x="215" y="146">DoIP Edge</text><text class="svg-sub-label" x="215" y="166">security / routing</text><text class="svg-sub-label" x="215" y="182">logical layer</text>
+            <line class="svg-eth" x1="273" y1="159" x2="303" y2="159"/>
+            <rect class="svg-node svg-hpc" x="303" y="99" width="174" height="120" rx="9"/><text class="svg-label svg-hpc-label" x="390" y="126">Graviton HPC</text><text class="svg-label" x="390" y="148">UDS App Proxy</text><text class="svg-sub-label" x="390" y="170">AL2023 · ARM64</text><text class="svg-sub-label" x="390" y="187">c8g.large</text><text class="svg-sub-label" x="390" y="204">terminate · process · reissue</text>
+            <line class="svg-eth" x1="477" y1="159" x2="510" y2="159"/><line class="svg-eth" x1="510" y1="55" x2="510" y2="270"/>
+            <line class="svg-eth" x1="510" y1="55" x2="575" y2="55"/><line class="svg-eth" x1="510" y1="123" x2="575" y2="123"/><line class="svg-eth" x1="510" y1="195" x2="575" y2="195"/><line class="svg-eth" x1="510" y1="270" x2="575" y2="270"/>
+            <rect class="svg-node svg-zcu" x="575" y="27" width="142" height="60" rx="7"/><text class="svg-label" x="646" y="49">ZCU 1</text><text class="svg-sub-label" x="646" y="69">AL2023 · x86_64 · c7i</text>
+            <rect class="svg-node svg-zcu" x="575" y="95" width="142" height="60" rx="7"/><text class="svg-label" x="646" y="117">ZCU 2</text><text class="svg-sub-label" x="646" y="137">AL2023 · x86_64 · c7i</text>
+            <rect class="svg-node svg-zcu" x="575" y="167" width="142" height="60" rx="7"/><text class="svg-label" x="646" y="189">ZCU 3</text><text class="svg-sub-label" x="646" y="209">AL2023 · x86_64 · c7i</text>
+            <rect class="svg-node svg-zcu" x="575" y="242" width="142" height="60" rx="7"/><text class="svg-label" x="646" y="264">ZCU 4</text><text class="svg-sub-label" x="646" y="284">AL2023 · x86_64 · c7i</text>
+            <text class="svg-network-note" x="510" y="319">Automotive Ethernet timing overlay on real AWS VPC</text>
           </svg>
           <p class="benchmark-caveat">DoIP Edge is shown as the logical vehicle ingress/security layer. The current AWS measurement path does not use a separate EC2 instance for this layer.</p>
         </article>
@@ -58,6 +62,7 @@
 
   const serviceSelect = $('mp2J1979Service');
   if (serviceSelect) {
+    serviceSelect.id = 'mp2UdsService';
     const label = serviceSelect.closest('label');
     if (label) label.childNodes[0].textContent = 'UDS service';
   }
