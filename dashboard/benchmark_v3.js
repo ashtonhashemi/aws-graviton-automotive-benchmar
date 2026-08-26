@@ -3,17 +3,15 @@
   const measuredView = $('p2MeasuredView');
   if (!measuredView) return;
 
-  // Keep one concise benchmark description. Detailed caveats live with the settings.
   measuredView.querySelector('.measured-note')?.remove();
   const intro = document.querySelector('#p2Lab .lab-intro');
   if (intro) {
     intro.innerHTML = `
       <p class="eyebrow">Measured AWS benchmark</p>
-      <h2>Legacy Distributed vs Zonal HPC</h2>
+      <h2>Legacy Distributed vs Zonal HPC Application Proxy</h2>
       <p>Compare tester-observed P2 timing across the same four diagnostic endpoints.</p>`;
   }
 
-  // Architecture: two compact cards, no repeated prose.
   const paths = measuredView.querySelector('.architecture-paths');
   if (paths) {
     paths.className = 'panel benchmark-architecture';
@@ -22,34 +20,11 @@
         <div><p class="eyebrow">01 · Architecture</p><h2>Vehicle Network Under Test</h2></div>
         <span class="test-badge">DoIP · J1979-2 service traffic</span>
       </div>
-      <div class="architecture-grid">
-        <article class="architecture-card">
-          <h3>Legacy distributed</h3>
-          <pre>Tester
-  │ DoIP
-  ▼
-Central Gateway
-  ├─ CAN-FD A ─ ECU 1
-  │            └ ECU 2
-  ├─ CAN-FD B ─ ECU 3
-  └─ CAN-FD C ─ ECU 4</pre>
-        </article>
-        <article class="architecture-card">
-          <h3>Zonal / HPC</h3>
-          <pre>Tester
-  │ DoIP
-  ▼
-Graviton HPC
-  ├─ Ethernet ─ ZCU 1
-  ├─ Ethernet ─ ZCU 2
-  ├─ Ethernet ─ ZCU 3
-  └─ Ethernet ─ ZCU 4</pre>
-          <div class="mode-tags"><span>Transparent routing</span><span>Application proxy</span></div>
-        </article>
+      <div style="border:1px solid #d8dee8;border-radius:14px;overflow:hidden;background:#fff">
+        <img src="benchmark-architecture.svg" alt="Distributed legacy gateway with three CAN-FD buses and four ECUs compared with a Graviton HPC application proxy connected by automotive Ethernet to four ZCUs" style="display:block;width:100%;height:auto" />
       </div>`;
   }
 
-  // Fleet: one table instead of five large cards plus a separate action panel.
   const nodeGrid = measuredView.querySelector('.p2-node-grid');
   const fleetActions = measuredView.querySelector('.fleet-actions');
   if (nodeGrid) {
@@ -79,7 +54,6 @@ Graviton HPC
     }
   }
 
-  // Replace the old base controls + injected controls with one organized settings panel.
   const oldConfig = $('mp2Architecture')?.closest('section');
   if (!oldConfig) return;
   oldConfig.className = 'panel benchmark-settings';
@@ -94,9 +68,8 @@ Graviton HPC
       <div class="settings-grid">
         <label>Architecture
           <select id="mp2Architecture">
-            <option value="all">Compare all three</option>
+            <option value="all">Compare both</option>
             <option value="distributed_canfd">Legacy distributed</option>
-            <option value="zonal_transparent">Zonal transparent</option>
             <option value="zonal_hpc_proxy">Zonal application proxy</option>
           </select>
         </label>
@@ -178,7 +151,6 @@ Graviton HPC
   const custom = $('mp2Custom');
   profile.onchange = () => { custom.hidden = profile.value !== 'custom'; };
 
-  // Results: one summary plus expandable details; no repeated panels.
   const resultsSection = $('p2MeasuredResults')?.closest('section');
   if (resultsSection) {
     resultsSection.classList.add('benchmark-results');
@@ -300,6 +272,5 @@ Graviton HPC
     }
   };
 
-  // Repaint status after replacing the fleet DOM with compact rows.
   if (window.refreshP2Nodes && $('apiBase')?.value && $('token')?.value) window.refreshP2Nodes();
 })();
