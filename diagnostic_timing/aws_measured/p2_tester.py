@@ -25,12 +25,10 @@ from doip_codec import (
 
 TESTER_ADDRESS = 0x0E80
 LEGACY_TARGETS = (0x1001, 0x1002, 0x1003, 0x1004)
-ZONAL_TARGETS = (0x2001, 0x2002, 0x2003, 0x2004)
 PROXY_TARGETS = (0x3001, 0x3002, 0x3003, 0x3004)
 
 LABELS = {
     "distributed_canfd": "Legacy distributed: Tester → Gateway → 4 ECUs",
-    "zonal_transparent": "Zonal transparent: Tester → Graviton HPC → 4 ZCUs",
     "zonal_hpc_proxy": "Zonal application proxy: Tester → Graviton HPC proxy → 4 ZCUs",
 }
 
@@ -77,8 +75,6 @@ def service_for(sequence: int, selected: str) -> str:
 
 
 def uds_request_for(service: str) -> bytes:
-    # Lab payloads exercise the J1979-2 UDS service shapes; data identifiers,
-    # DTCs and routine IDs are synthetic and are not a J1979DA data-set claim.
     if service == "read_data":
         return b"\x22\xF1\x90"
     if service == "read_dtc":
@@ -128,11 +124,7 @@ def activate(sock: socket.socket) -> None:
 
 
 def targets_for(name: str) -> tuple[int, ...]:
-    if name == "distributed_canfd":
-        return LEGACY_TARGETS
-    if name == "zonal_transparent":
-        return ZONAL_TARGETS
-    return PROXY_TARGETS
+    return LEGACY_TARGETS if name == "distributed_canfd" else PROXY_TARGETS
 
 
 def one_request(sock: socket.socket, target: int, service: str, sequence: int, architecture: str) -> dict:
@@ -148,9 +140,7 @@ def one_request(sock: socket.socket, target: int, service: str, sequence: int, a
     if response_target != TESTER_ADDRESS:
         raise RuntimeError(f"{architecture}: response target 0x{response_target:04X} is not tester")
     if not validate_positive_response(service, uds_response):
-        raise RuntimeError(
-            f"{architecture}: unexpected response for {SERVICE_LABELS[service]}: {uds_response.hex()}"
-        )
+        raise RuntimeError(f"{architecture}: unexpected response for {SERVICE_LABELS[service]}: {uds_response.hex()}")
     return {
         "sequence": sequence,
         "elapsed_ms": elapsed_ms,
@@ -162,15 +152,7 @@ def one_request(sock: socket.socket, target: int, service: str, sequence: int, a
     }
 
 
-def run_architecture(
-    name: str,
-    first_hop: str,
-    port: int,
-    samples: int,
-    budget_ms: float,
-    j1979_service: str,
-    traffic_pattern: str,
-) -> dict:
+def run_architecture(name: str, first_hop: str, port: int, samples: int, budget_ms: float, j1979_service: str, traffic_pattern: str) -> dict:
     elapsed_values: list[float] = []
     target_samples: dict[str, list[float]] = {str(i): [] for i in range(1, 5)}
     service_samples: dict[str, list[float]] = {key: [] for key in SERVICE_CYCLE}
@@ -250,10 +232,7 @@ def run_architecture(
         "per_service_p2tester_ms": per_service,
         "trace": trace,
         "server_processing_ms": {"mean": None, "p50": None, "p95": None, "p99": None, "max": None},
-        "architecture_delay_ms": {
-            "mean": None, "p50": None, "p95": None, "p99": None, "max": None,
-            "mean_components": {"end_to_end_only": None},
-        },
+        "architecture_delay_ms": {"mean": None, "p50": None, "p95": None, "p99": None, "max": None, "mean_components": {"end_to_end_only": None}},
     }
 
 
@@ -279,10 +258,7 @@ def main() -> None:
     results = []
     for name in names:
         first_hop = args.legacy_gateway_ip if name == "distributed_canfd" else args.hpc_ip
-        results.append(run_architecture(
-            name, first_hop, args.port, args.samples, args.budget_ms,
-            args.j1979_service, args.traffic_pattern,
-        ))
+        results.append(run_architecture(name, first_hop, args.port, args.samples, args.budget_ms, args.j1979_service, args.traffic_pattern))
 
     payload = {
         "study": "Measured AWS SAE J1979-2 service-level architecture benchmark",
@@ -290,15 +266,10 @@ def main() -> None:
         "transport": "DoIP diagnostic-message framing over persistent TCP/IPv4 on private AWS VPC networking",
         "j1979_2_service_mode": args.j1979_service,
         "traffic_pattern": args.traffic_pattern,
-        "protocol_note": (
-            "Research harness exercises UDS service patterns used by SAE J1979-2 (0x22, 0x19, 0x14, 0x31) "
-            "inside DoIP diagnostic-message frames. Synthetic lab DIDs/DTCs/routine values are used; this is not "
-            "a complete ISO 13400, ISO 14229, SAE J1979-2, or J1979DA conformance implementation."
-        ),
+        "protocol_note": "Research harness exercises UDS service patterns used by SAE J1979-2 (0x22, 0x19, 0x14, 0x31) inside DoIP diagnostic-message frames. Synthetic lab DIDs/DTCs/routine values are used; this is not a complete ISO 13400, ISO 14229, SAE J1979-2, or J1979DA conformance implementation.",
         "timing_note": "P2Tester is measured end-to-end only on the tester monotonic clock; no cross-host clock subtraction is used.",
         "topology": {
             "legacy": "Tester -> central gateway -> CAN-FD Bus A/B/C -> four distributed ECU diagnostic servers",
-            "zonal_transparent": "Tester -> Graviton HPC transparent router -> four ZCU diagnostic servers",
             "zonal_proxy": "Tester -> Graviton HPC application proxy -> four ZCU diagnostic servers",
         },
         "results": results,
