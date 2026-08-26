@@ -240,16 +240,22 @@ def p2_profile(body):
 
 
 def p2_process_commands(asset, command, auto_stop):
+    # Benchmark nodes are dedicated. Remove any prior listener before launching
+    # the new run so TCP/13400 cannot be held by an earlier SSM invocation.
+    # Auto-stop is intentionally NOT executed here; it is dispatched centrally
+    # after a complete tester result is visible in S3.
     commands = [
         "set -uo pipefail",
+        "pkill -f '/tmp/p2_diag_server.py' >/dev/null 2>&1 || true",
+        "pkill -f '/tmp/p2_router.py' >/dev/null 2>&1 || true",
+        "pkill -f '/tmp/p2_tester.py' >/dev/null 2>&1 || true",
+        "sleep 1",
         f"aws s3 cp s3://{BUCKET}/assets/doip_codec.py /tmp/doip_codec.py",
         f"aws s3 cp s3://{BUCKET}/assets/{asset} /tmp/{asset}",
         "code=0",
         f"timeout 1200 {command} || code=$?",
+        "exit $code",
     ]
-    if auto_stop:
-        commands.append("sudo shutdown -h now || true")
-    commands.append("exit $code")
     return commands
 
 
@@ -257,6 +263,8 @@ def p2_tester_commands(run_id, cfg, legacy_gateway_ip, hpc_ip, auto_stop):
     out = f"/tmp/{run_id}-p2-measured.json"
     commands = [
         "set -euo pipefail",
+        "pkill -f '/tmp/p2_tester.py' >/dev/null 2>&1 || true",
+        "sleep 1",
         f"aws s3 cp s3://{BUCKET}/assets/doip_codec.py /tmp/doip_codec.py",
         f"aws s3 cp s3://{BUCKET}/assets/p2_tester.py /tmp/p2_tester.py",
         "sleep 6",
@@ -268,8 +276,6 @@ def p2_tester_commands(run_id, cfg, legacy_gateway_ip, hpc_ip, auto_stop):
         ),
         f"aws s3 cp {out} s3://{BUCKET}/results/{run_id}/p2-measured.json",
     ]
-    if auto_stop:
-        commands.append("sudo shutdown -h now || true")
     return commands
 
 
@@ -464,6 +470,26 @@ def get_p2_measured_result(run_id):
     commands = {role: command_snapshot(command_id, instance_ids[role]) for role, command_id in command_ids.items()}
     failed = {role: snap for role, snap in commands.items() if snap.get("status") in ("Failed", "TimedOut", "Cancelled", "Cancelling")}
     body = {"run": item, "complete": measured is not None, "result": measured, "commands": commands}
+
+    if measured is not None and item.get("experiment") == "p2_measured_v3":
+        cfg = json.loads(item.get("benchmark_config_json", "{}"))
+        if cfg.get("auto_stop") and not item.get("auto_stop_dispatched"):
+            try:
+                EC2.stop_instances(InstanceIds=list(P2_IDS.values()))
+                now = int(time.time())
+                DDB.update_item(
+                    Key={"run_id": run_id},
+                    UpdateExpression="SET auto_stop_dispatched = :yes, auto_stop_dispatched_at = :ts",
+                    ExpressionAttributeValues={":yes": True, ":ts": now},
+                )
+                body["auto_stop"] = {"requested": True, "at": now}
+            except ClientError as exc:
+                err = exc.response.get("Error", {})
+                body["auto_stop"] = {
+                    "requested": False,
+                    "error": f"{err.get('Code', 'AWSClientError')}: {err.get('Message', 'stop request failed')}",
+                }
+
     if failed and measured is None:
         body["error"] = "One or more benchmark node commands failed before a result was produced."
         body["failed_commands"] = failed
