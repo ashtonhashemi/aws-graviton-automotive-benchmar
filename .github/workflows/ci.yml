@@ -20,7 +20,9 @@ jobs:
       - name: Benchmark smoke tests
         run: make test
       - name: Check dashboard JavaScript
-        run: node --check dashboard/app.js
+        run: |
+          node --check dashboard/app.js
+          node --check dashboard/benchmark_v3.js
       - name: Validate SAM template
         uses: aws-actions/setup-sam@v2
       - run: sam validate --lint --template-file infra/template.yaml
