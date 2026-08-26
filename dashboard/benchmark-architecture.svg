@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 660" role="img" aria-labelledby="title desc">
+  <title id="title">Distributed legacy versus zonal HPC application proxy benchmark architecture</title>
+  <desc id="desc">Two automotive network diagrams. Legacy: external OBD tester to central gateway over DoIP and SAE J1979-2, then three CAN-FD buses to four ECUs. Zonal: external OBD tester to AWS Graviton HPC application proxy over DoIP and SAE J1979-2, then automotive Ethernet to four ZCUs.</desc>
+  <defs>
+    <style>
+      .bg{fill:#fff}.panel{fill:#fbfcfd;stroke:#cbd5e1;stroke-width:2}.headL{fill:#24344a}.headR{fill:#147d77}.headText{fill:#fff;font:700 25px Inter,Arial,sans-serif}.node{fill:#fff;stroke:#64748b;stroke-width:2}.nodeL{fill:#f8fafc;stroke:#315caa;stroke-width:2}.nodeR{fill:#f6fbfb;stroke:#148c84;stroke-width:2}.bus{fill:#fff;stroke:#148c84;stroke-width:2}.t1{fill:#0f172a;font:700 19px Inter,Arial,sans-serif}.t2{fill:#334155;font:600 15px Inter,Arial,sans-serif}.small{fill:#475569;font:600 13px Inter,Arial,sans-serif}.micro{fill:#64748b;font:500 12px Inter,Arial,sans-serif}.can{stroke:#315caa;stroke-width:4;fill:none;stroke-linecap:round;stroke-linejoin:round}.eth{stroke:#148c84;stroke-width:4;fill:none;stroke-linecap:round;stroke-linejoin:round}.doip{stroke:#5b6ee1;stroke-width:4;stroke-dasharray:8 8;fill:none;stroke-linecap:round}.chip{fill:none;stroke:#0f172a;stroke-width:2}.legend{fill:#334155;font:600 13px Inter,Arial,sans-serif}
+    </style>
+    <marker id="arrowBlue" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L9,3 L0,6 Z" fill="#315caa"/></marker>
+    <marker id="arrowTeal" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L9,3 L0,6 Z" fill="#148c84"/></marker>
+    <marker id="arrowDoip" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L9,3 L0,6 Z" fill="#5b6ee1"/></marker>
+  </defs>
+
+  <rect class="bg" width="1600" height="660"/>
+  <rect class="panel" x="24" y="24" width="760" height="560" rx="18"/>
+  <rect class="panel" x="816" y="24" width="760" height="560" rx="18"/>
+  <path class="headL" d="M42 24h724a18 18 0 0 1 18 18v58H24V42a18 18 0 0 1 18-18z"/>
+  <path class="headR" d="M834 24h724a18 18 0 0 1 18 18v58H816V42a18 18 0 0 1 18-18z"/>
+  <text class="headText" x="404" y="71" text-anchor="middle">Distributed / Legacy Architecture</text>
+  <text class="headText" x="1196" y="71" text-anchor="middle">Zonal Architecture — HPC Application Proxy</text>
+
+  <!-- Legacy -->
+  <rect class="nodeL" x="58" y="250" width="132" height="110" rx="14"/>
+  <text class="t1" x="124" y="292" text-anchor="middle">External</text><text class="t1" x="124" y="318" text-anchor="middle">OBD Tester</text>
+  <text class="micro" x="124" y="344" text-anchor="middle">EC2 client</text>
+
+  <path class="doip" d="M190 305 H286" marker-end="url(#arrowDoip)"/>
+  <text class="small" x="238" y="282" text-anchor="middle">DoIP / J1979-2</text>
+
+  <rect class="nodeL" x="294" y="235" width="150" height="140" rx="14"/>
+  <text class="t1" x="369" y="288" text-anchor="middle">Central</text><text class="t1" x="369" y="314" text-anchor="middle">Gateway</text>
+  <text class="micro" x="369" y="342" text-anchor="middle">EC2 gateway</text>
+
+  <path class="can" d="M444 305 H500 V171 H555"/>
+  <path class="can" d="M500 171 V474"/>
+
+  <rect class="bus" x="536" y="138" width="112" height="64" rx="12"/>
+  <text class="t2" x="592" y="163" text-anchor="middle">CAN-FD</text><text class="t2" x="592" y="184" text-anchor="middle">Bus A</text>
+  <rect class="bus" x="536" y="274" width="112" height="64" rx="12"/>
+  <text class="t2" x="592" y="299" text-anchor="middle">CAN-FD</text><text class="t2" x="592" y="320" text-anchor="middle">Bus B</text>
+  <rect class="bus" x="536" y="410" width="112" height="64" rx="12"/>
+  <text class="t2" x="592" y="435" text-anchor="middle">CAN-FD</text><text class="t2" x="592" y="456" text-anchor="middle">Bus C</text>
+
+  <path class="can" d="M648 170 H676 V142 H694" marker-end="url(#arrowBlue)"/>
+  <path class="can" d="M648 170 H676 V218 H694" marker-end="url(#arrowBlue)"/>
+  <path class="can" d="M648 306 H694" marker-end="url(#arrowBlue)"/>
+  <path class="can" d="M648 442 H694" marker-end="url(#arrowBlue)"/>
+
+  <g>
+    <rect class="node" x="700" y="111" width="64" height="58" rx="8"/><rect class="chip" x="720" y="127" width="24" height="24" rx="2"/><text class="small" x="732" y="188" text-anchor="middle">ECU 1</text>
+    <rect class="node" x="700" y="187" width="64" height="58" rx="8"/><rect class="chip" x="720" y="203" width="24" height="24" rx="2"/><text class="small" x="732" y="264" text-anchor="middle">ECU 2</text>
+    <rect class="node" x="700" y="277" width="64" height="58" rx="8"/><rect class="chip" x="720" y="293" width="24" height="24" rx="2"/><text class="small" x="732" y="354" text-anchor="middle">ECU 3</text>
+    <rect class="node" x="700" y="413" width="64" height="58" rx="8"/><rect class="chip" x="720" y="429" width="24" height="24" rx="2"/><text class="small" x="732" y="490" text-anchor="middle">ECU 4</text>
+  </g>
+
+  <!-- Zonal -->
+  <rect class="nodeL" x="850" y="250" width="132" height="110" rx="14"/>
+  <text class="t1" x="916" y="292" text-anchor="middle">External</text><text class="t1" x="916" y="318" text-anchor="middle">OBD Tester</text>
+  <text class="micro" x="916" y="344" text-anchor="middle">EC2 client</text>
+
+  <path class="doip" d="M982 305 H1078" marker-end="url(#arrowDoip)"/>
+  <text class="small" x="1030" y="282" text-anchor="middle">DoIP / J1979-2</text>
+
+  <rect class="nodeR" x="1086" y="212" width="190" height="186" rx="16"/>
+  <rect class="chip" x="1160" y="244" width="42" height="42" rx="4"/>
+  <text class="t1" x="1181" y="322" text-anchor="middle">AWS Graviton HPC</text>
+  <text class="t2" x="1181" y="347" text-anchor="middle">Application Proxy</text>
+  <text class="micro" x="1181" y="374" text-anchor="middle">terminates + reissues request</text>
+
+  <path class="eth" d="M1276 305 H1330 V145 H1380" marker-end="url(#arrowTeal)"/>
+  <path class="eth" d="M1330 145 V465"/>
+  <path class="eth" d="M1330 245 H1380" marker-end="url(#arrowTeal)"/>
+  <path class="eth" d="M1330 345 H1380" marker-end="url(#arrowTeal)"/>
+  <path class="eth" d="M1330 445 H1380" marker-end="url(#arrowTeal)"/>
+  <text class="small" x="1352" y="125" text-anchor="middle">Automotive Ethernet</text>
+
+  <g>
+    <rect class="nodeR" x="1388" y="114" width="144" height="62" rx="10"/><text class="t1" x="1460" y="151" text-anchor="middle">ZCU 1</text>
+    <rect class="nodeR" x="1388" y="214" width="144" height="62" rx="10"/><text class="t1" x="1460" y="251" text-anchor="middle">ZCU 2</text>
+    <rect class="nodeR" x="1388" y="314" width="144" height="62" rx="10"/><text class="t1" x="1460" y="351" text-anchor="middle">ZCU 3</text>
+    <rect class="nodeR" x="1388" y="414" width="144" height="62" rx="10"/><text class="t1" x="1460" y="451" text-anchor="middle">ZCU 4</text>
+  </g>
+
+  <!-- Legend -->
+  <line class="doip" x1="70" y1="622" x2="140" y2="622"/><text class="legend" x="153" y="627">DoIP / SAE J1979-2 tester connection</text>
+  <line class="can" x1="470" y1="622" x2="540" y2="622"/><text class="legend" x="553" y="627">CAN-FD</text>
+  <line class="eth" x1="760" y1="622" x2="830" y2="622"/><text class="legend" x="843" y="627">Automotive Ethernet</text>
+  <text class="legend" x="1095" y="627">Benchmark: distributed gateway routing vs HPC application proxy</text>
+</svg>
