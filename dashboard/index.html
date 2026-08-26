@@ -11,7 +11,7 @@
     <header>
       <p class="eyebrow">Automotive systems engineering · AWS</p>
       <h1>AWS Automotive Systems Lab</h1>
-      <p>Distributed ESC SIL plus a measured OBDonUDS architecture benchmark comparing a legacy central gateway with a Graviton HPC and four zonal controllers.</p>
+      <p>Distributed ESC SIL plus a measured OBDonUDS architecture benchmark comparing a legacy central gateway with a Graviton HPC application proxy.</p>
     </header>
 
     <div id="globalStatus" class="status-banner info" role="status" aria-live="polite">Loading dashboard configuration…</div>
@@ -49,15 +49,15 @@
     <div id="p2Lab" class="lab-view" hidden>
       <section class="panel lab-intro">
         <p class="eyebrow">Experiment 02 · measured diagnostic architecture</p>
-        <h2>P2Tester — Legacy Distributed vs Zonal HPC</h2>
-        <p>The same external tester queries four diagnostic servers in each architecture. Legacy uses a central gateway plus four distributed ECUs. Zonal uses an ARM64 Graviton HPC plus four independent ZCUs.</p>
+        <h2>P2Tester — Legacy Distributed vs Zonal HPC Application Proxy</h2>
+        <p>The same external tester queries four diagnostic servers in each architecture. Legacy uses a central gateway plus four distributed ECUs. Zonal uses an ARM64 Graviton HPC application proxy plus four independent ZCUs.</p>
       </section>
 
       <section class="panel mode-panel"><label>Study mode <select id="p2Mode"><option value="measured" selected>Measured AWS — 11 EC2 nodes</option><option value="model">Timing model — Lambda Monte Carlo</option></select></label></section>
 
       <div id="p2ModelView" hidden>
         <section class="panel model-note"><strong>Model mode</strong><p>Monte Carlo architecture trade study. Delay distributions are explicit engineering assumptions, not measured network values and not normative SAE/ISO timing values.</p></section>
-        <section class="panel"><h2>Timing Model</h2><div class="form-row"><label>Architecture <select id="p2Architecture"><option value="all">Compare all three</option><option value="distributed_canfd">Legacy gateway + CAN-FD</option><option value="zonal_transparent">Zonal transparent</option><option value="zonal_hpc_proxy">Zonal HPC proxy</option></select></label><label>Server profile <select id="p2Profile"><option value="nominal">Nominal — 20 ms mean</option><option value="near_limit">Near-limit — 38 ms mean</option><option value="custom">Custom</option></select></label><label>P2Tester budget (ms)<input id="p2Budget" type="number" value="50" /></label><label>Samples<input id="p2Samples" type="number" value="20000" /></label></div><div id="p2Custom" class="form-row custom-row" hidden><label>Mean (ms)<input id="p2Mean" type="number" value="38" /></label><label>σ (ms)<input id="p2Sigma" type="number" value="5" /></label><label>Minimum (ms)<input id="p2Min" type="number" value="20" /></label><label>Maximum (ms)<input id="p2Max" type="number" value="49" /></label></div><button id="runP2">Run modeled study</button><p id="p2Status">No model running.</p></section>
+        <section class="panel"><h2>Timing Model</h2><div class="form-row"><label>Architecture <select id="p2Architecture"><option value="all">Compare both</option><option value="distributed_canfd">Legacy gateway + CAN-FD</option><option value="zonal_hpc_proxy">Zonal HPC application proxy</option></select></label><label>Server profile <select id="p2Profile"><option value="nominal">Nominal — 20 ms mean</option><option value="near_limit">Near-limit — 38 ms mean</option><option value="custom">Custom</option></select></label><label>P2Tester budget (ms)<input id="p2Budget" type="number" value="50" /></label><label>Samples<input id="p2Samples" type="number" value="20000" /></label></div><div id="p2Custom" class="form-row custom-row" hidden><label>Mean (ms)<input id="p2Mean" type="number" value="38" /></label><label>σ (ms)<input id="p2Sigma" type="number" value="5" /></label><label>Minimum (ms)<input id="p2Min" type="number" value="20" /></label><label>Maximum (ms)<input id="p2Max" type="number" value="49" /></label></div><button id="runP2">Run modeled study</button><p id="p2Status">No model running.</p></section>
         <section class="panel"><h2>Modeled Results</h2><table><thead><tr><th>Architecture</th><th>Mean</th><th>P50</th><th>P95</th><th>P99</th><th>Max</th><th>&gt; Budget</th><th>P99 Result</th></tr></thead><tbody id="p2Results"><tr><td colspan="8">No results yet.</td></tr></tbody></table><p id="p2Conclusion"></p></section>
         <section class="panel"><h2>Mean Latency Budget Breakdown</h2><div id="p2Breakdown" class="breakdown-grid"><p>No results yet.</p></div></section>
         <section class="panel traces"><h2>Modeled P2Tester Distribution</h2><div id="p2Histograms"></div></section>
@@ -66,13 +66,12 @@
       <div id="p2MeasuredView">
         <section class="panel measured-note">
           <strong>Measured AWS mode</strong>
-          <p>The tester performs DoIP TCP routing activation and sends DoIP diagnostic-message frames carrying raw UDS ReadDataByIdentifier traffic. P2Tester is timed entirely on the tester monotonic clock. This is a research benchmark, not a complete ISO 13400 or SAE J1979-2 conformance implementation.</p>
+          <p>The tester performs DoIP TCP routing activation and sends DoIP diagnostic-message frames carrying raw UDS service traffic. P2Tester is timed entirely on the tester monotonic clock. This is a research benchmark, not a complete ISO 13400 or SAE J1979-2 conformance implementation.</p>
         </section>
 
         <section class="panel architecture-paths">
           <h2>Benchmark Architectures</h2>
           <div class="path-row"><strong>Legacy distributed</strong><span>Tester → Central Gateway → CAN-FD timing emulator → ECU 1 / 2 / 3 / 4</span></div>
-          <div class="path-row"><strong>Zonal transparent</strong><span>Tester → ARM64 Graviton HPC → ZCU 1 / 2 / 3 / 4</span></div>
           <div class="path-row"><strong>Zonal application proxy</strong><span>Tester → Graviton HPC terminates/reissues request → ZCU 1 / 2 / 3 / 4</span></div>
         </section>
 
@@ -89,7 +88,7 @@
         <section class="panel">
           <h2>Measured Test Configuration</h2>
           <div class="form-row">
-            <label>Architecture <select id="mp2Architecture"><option value="all">Measure all three</option><option value="distributed_canfd">Legacy distributed</option><option value="zonal_transparent">Zonal transparent</option><option value="zonal_hpc_proxy">Zonal application proxy</option></select></label>
+            <label>Architecture <select id="mp2Architecture"><option value="all">Measure both</option><option value="distributed_canfd">Legacy distributed</option><option value="zonal_hpc_proxy">Zonal application proxy</option></select></label>
             <label>ECU/ZCU processing profile <select id="mp2Profile"><option value="nominal">Nominal — 20 ms mean</option><option value="near_limit">Near-limit — 38 ms mean</option><option value="custom">Custom</option></select></label>
             <label>P2Tester budget (ms)<input id="mp2Budget" type="number" min="1" max="5000" value="50" /></label>
             <label>Requests / architecture<input id="mp2Samples" type="number" min="12" max="5000" step="4" value="500" /></label>
