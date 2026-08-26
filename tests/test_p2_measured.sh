@@ -48,13 +48,13 @@ PIDS+=("$!")
 sleep 0.7
 python3 "$ROOT/diagnostic_timing/aws_measured/p2_tester.py" \
   --architecture all --legacy-gateway-ip "$LEGACY_GW_IP" --hpc-ip "$HPC_IP" --port "$PORT" \
-  --samples 24 --budget-ms 20 --j1979-service mixed --traffic-pattern parallel4 --output "$OUT"
+  --samples 24 --budget-ms 20 --uds-service mixed --traffic-pattern parallel4 --output "$OUT"
 
 python3 - "$OUT" <<'PY'
 import json, sys
 payload = json.load(open(sys.argv[1]))
 assert payload["mode"] == "measured_aws_vehicle_architecture"
-assert payload["j1979_2_service_mode"] == "mixed"
+assert payload["uds_service_mode"] == "mixed"
 assert payload["traffic_pattern"] == "parallel4"
 assert len(payload["results"]) == 2
 by_name = {r["architecture"]: r for r in payload["results"]}
@@ -62,6 +62,7 @@ assert set(by_name) == {"distributed_canfd", "zonal_hpc_proxy"}
 expected_services = {"read_data", "read_dtc", "clear_dtc", "routine_control"}
 for result in by_name.values():
     assert result["samples"] == 24
+    assert result["uds_service"] == "mixed"
     assert result["p2tester_elapsed_ms"]["mean"] > 0
     assert len(result["histogram"]) == 32
     assert result["trace"]
@@ -70,5 +71,5 @@ for result in by_name.values():
     assert {row["service"] for row in result["trace"]} == expected_services
 assert "4 ECUs" in by_name["distributed_canfd"]["label"]
 assert "application proxy" in by_name["zonal_hpc_proxy"]["label"]
-print("J1979-2 two-architecture legacy-versus-HPC-proxy integration test passed")
+print("UDS-over-DoIP two-architecture legacy-versus-HPC-proxy integration test passed")
 PY
