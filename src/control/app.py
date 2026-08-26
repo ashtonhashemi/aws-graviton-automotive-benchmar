@@ -39,10 +39,10 @@ ALL_INSTANCE_IDS = {X86_ID, ARM_ID, *P2_IDS.values()}
 P2_ROLES = {
     "tester": "External OBDonUDS tester",
     "legacy_gateway": "Legacy central diagnostic gateway",
-    "legacy_ecu1": "Distributed ECU 1 diagnostic server",
-    "legacy_ecu2": "Distributed ECU 2 diagnostic server",
-    "legacy_ecu3": "Distributed ECU 3 diagnostic server",
-    "legacy_ecu4": "Distributed ECU 4 diagnostic server",
+    "legacy_ecu1": "Distributed ECU 1 diagnostic server (CAN-FD Bus A)",
+    "legacy_ecu2": "Distributed ECU 2 diagnostic server (CAN-FD Bus A)",
+    "legacy_ecu3": "Distributed ECU 3 diagnostic server (CAN-FD Bus B)",
+    "legacy_ecu4": "Distributed ECU 4 diagnostic server (CAN-FD Bus C)",
     "hpc": "Graviton zonal HPC router / application proxy",
     "zcu1": "ZCU 1 diagnostic server",
     "zcu2": "ZCU 2 diagnostic server",
@@ -53,6 +53,8 @@ P2_PROFILES = {
     "nominal": {"mean_ms": 20.0, "sigma_ms": 7.0, "minimum_ms": 3.0, "maximum_ms": 45.0},
     "near_limit": {"mean_ms": 38.0, "sigma_ms": 5.0, "minimum_ms": 20.0, "maximum_ms": 49.0},
 }
+J1979_SERVICES = {"mixed", "read_data", "read_dtc", "clear_dtc", "routine_control"}
+TRAFFIC_PATTERNS = {"round_robin", "parallel4"}
 
 
 def _json_default(value):
@@ -122,6 +124,7 @@ def start_stop(instance_id, action):
         raise ValueError("action must be start or stop")
 
 
+# ------------------------- ESC SIL experiment -------------------------
 def zcu_commands(run_id, esc, auto_stop):
     out = f"/tmp/{run_id}-zcu.json"
     commands = [
@@ -154,7 +157,6 @@ def run_benchmark(body):
     auto_stop = bool(body.get("auto_stop", True))
     if esc not in ("on", "off"):
         raise ValueError("esc must be on or off")
-
     ssm_map = ssm_statuses()
     zcu = state(X86_ID, "x86 EC2 ZCU / ESC controller", ssm_map)
     hpc = state(ARM_ID, "Graviton HPC / vehicle and FMVSS maneuver simulator", ssm_map)
@@ -162,13 +164,7 @@ def run_benchmark(body):
     if zcu["state"] != "running" or hpc["state"] != "running":
         return response(409, {"error": "Both the Graviton HPC and x86 ZCU must be running", "instances": states})
     if zcu["ssm_ping_status"] != "Online" or hpc["ssm_ping_status"] != "Online":
-        return response(409, {
-            "error": "EC2 is running, but Systems Manager is not ready on both nodes yet. Refresh Status until both show SSM Online, then run the test.",
-            "instances": states,
-        })
-    if not zcu.get("private_ip"):
-        return response(409, {"error": "ZCU private VPC IP is unavailable", "instances": states})
-
+        return response(409, {"error": "ESC nodes are not both SSM Online yet", "instances": states})
     run_id = str(uuid.uuid4())
     try:
         zcu_cmd = SSM.send_command(
@@ -181,19 +177,14 @@ def run_benchmark(body):
         )["Command"]["CommandId"]
     except ClientError as exc:
         err = exc.response.get("Error", {})
-        return response(409, {"error": f"SSM command failed [{err.get('Code', 'AWSClientError')}]: {err.get('Message', 'unknown error')}", "instances": states})
-
+        return response(409, {"error": f"SSM command failed [{err.get('Code', 'AWSClientError')}]: {err.get('Message', 'unknown error')}"})
     DDB.put_item(Item={
         "run_id": run_id, "created_at": int(time.time()), "experiment": "esc_sil",
         "esc": esc, "auto_stop": auto_stop, "transport": "UDP/IPv4 over AWS VPC", "udp_port": UDP_PORT,
         "zcu_instance_id": X86_ID, "zcu_private_ip": zcu["private_ip"], "hpc_instance_id": ARM_ID,
         "zcu_command_id": zcu_cmd, "hpc_command_id": hpc_cmd,
     })
-    return response(202, {
-        "run_id": run_id, "transport": "real UDP/IPv4 over AWS VPC Ethernet",
-        "zcu_private_ip": zcu["private_ip"], "udp_port": UDP_PORT,
-        "commands": {"zcu": zcu_cmd, "hpc": hpc_cmd},
-    })
+    return response(202, {"run_id": run_id, "zcu_private_ip": zcu["private_ip"], "udp_port": UDP_PORT})
 
 
 def get_json(key):
@@ -224,6 +215,7 @@ def get_result(run_id):
     return response(200, body)
 
 
+# ---------------------- OBDonUDS architecture lab ----------------------
 def p2_states():
     ssm_map = ssm_statuses()
     return {name: state(instance_id, P2_ROLES[name], ssm_map) for name, instance_id in P2_IDS.items()}
@@ -261,17 +253,18 @@ def p2_process_commands(asset, command, auto_stop):
     return commands
 
 
-def p2_tester_commands(run_id, architecture, legacy_gateway_ip, hpc_ip, samples, budget_ms, auto_stop):
+def p2_tester_commands(run_id, cfg, legacy_gateway_ip, hpc_ip, auto_stop):
     out = f"/tmp/{run_id}-p2-measured.json"
     commands = [
         "set -euo pipefail",
         f"aws s3 cp s3://{BUCKET}/assets/doip_codec.py /tmp/doip_codec.py",
         f"aws s3 cp s3://{BUCKET}/assets/p2_tester.py /tmp/p2_tester.py",
-        "sleep 5",
+        "sleep 6",
         (
-            f"python3 /tmp/p2_tester.py --architecture {architecture} "
+            f"python3 /tmp/p2_tester.py --architecture {cfg['architecture']} "
             f"--legacy-gateway-ip {legacy_gateway_ip} --hpc-ip {hpc_ip} --port {P2_PORT} "
-            f"--samples {samples} --budget-ms {budget_ms} --output {out}"
+            f"--samples {cfg['samples']} --budget-ms {cfg['budget_ms']} "
+            f"--j1979-service {cfg['j1979_service']} --traffic-pattern {cfg['traffic_pattern']} --output {out}"
         ),
         f"aws s3 cp {out} s3://{BUCKET}/results/{run_id}/p2-measured.json",
     ]
@@ -287,7 +280,14 @@ def send_ssm(instance_id, commands):
     )["Command"]["CommandId"]
 
 
-def run_p2_measured(body):
+def _pct(body, name, default):
+    value = float(body.get(name, default))
+    if not 0 <= value <= 95:
+        raise ValueError(f"{name} must be between 0 and 95")
+    return value
+
+
+def p2_config(body):
     architecture = body.get("architecture", "all")
     if architecture not in ("all", "distributed_canfd", "zonal_transparent", "zonal_hpc_proxy"):
         raise ValueError("invalid measured architecture")
@@ -300,24 +300,56 @@ def run_p2_measured(body):
     proxy_work_ms = float(body.get("proxy_work_ms", 0.0))
     if proxy_work_ms < 0 or proxy_work_ms > 50:
         raise ValueError("proxy_work_ms must be between 0 and 50")
-    can_load = float(body.get("can_load", 0.30))
-    if can_load < 0 or can_load >= 0.95:
-        raise ValueError("can_load must be >= 0 and < 0.95")
+    j1979_service = body.get("j1979_service", "mixed")
+    if j1979_service not in J1979_SERVICES:
+        raise ValueError("invalid J1979-2 service selection")
+    traffic_pattern = body.get("traffic_pattern", "round_robin")
+    if traffic_pattern not in TRAFFIC_PATTERNS:
+        raise ValueError("traffic_pattern must be round_robin or parallel4")
+
+    can_load_a = float(body.get("can_load_a", 0.30))
+    can_load_b = float(body.get("can_load_b", 0.20))
+    can_load_c = float(body.get("can_load_c", 0.10))
+    ethernet_load = float(body.get("ethernet_load", 0.20))
+    for name, value in (("can_load_a", can_load_a), ("can_load_b", can_load_b), ("can_load_c", can_load_c), ("ethernet_load", ethernet_load)):
+        if not 0 <= value < 0.95:
+            raise ValueError(f"{name} must be >= 0 and < 0.95")
     can_arb_bps = float(body.get("can_arb_bps", 500000.0))
     can_data_bps = float(body.get("can_data_bps", 2000000.0))
-    if can_arb_bps <= 0 or can_data_bps <= 0:
-        raise ValueError("CAN-FD bit rates must be positive")
-    auto_stop = bool(body.get("auto_stop", True))
-    profile_name, profile = p2_profile(body)
+    ethernet_rate_mbps = float(body.get("ethernet_rate_mbps", 1000.0))
+    if can_arb_bps <= 0 or can_data_bps <= 0 or ethernet_rate_mbps <= 0:
+        raise ValueError("network bit rates must be positive")
 
+    return {
+        "architecture": architecture,
+        "samples": samples,
+        "budget_ms": budget_ms,
+        "proxy_work_ms": proxy_work_ms,
+        "j1979_service": j1979_service,
+        "traffic_pattern": traffic_pattern,
+        "can_load_a": can_load_a,
+        "can_load_b": can_load_b,
+        "can_load_c": can_load_c,
+        "can_arb_bps": can_arb_bps,
+        "can_data_bps": can_data_bps,
+        "ethernet_rate_mbps": ethernet_rate_mbps,
+        "ethernet_load": ethernet_load,
+        "gateway_cpu_pressure_pct": _pct(body, "gateway_cpu_pressure_pct", 10),
+        "legacy_ecu_cpu_pressure_pct": _pct(body, "legacy_ecu_cpu_pressure_pct", 20),
+        "hpc_cpu_pressure_pct": _pct(body, "hpc_cpu_pressure_pct", 20),
+        "zcu_cpu_pressure_pct": _pct(body, "zcu_cpu_pressure_pct", 20),
+        "auto_stop": bool(body.get("auto_stop", True)),
+    }
+
+
+def run_p2_measured(body):
+    cfg = p2_config(body)
+    profile_name, profile = p2_profile(body)
     states = p2_states()
     if any(node["state"] != "running" for node in states.values()):
         return response(409, {"error": "All 11 measured benchmark nodes must be running", "instances": states})
     if any(node["ssm_ping_status"] != "Online" for node in states.values()):
-        return response(409, {
-            "error": "Benchmark EC2 nodes are running but not all are SSM Online yet. Refresh P2 node status and retry.",
-            "instances": states,
-        })
+        return response(409, {"error": "Benchmark nodes are running but not all SSM Online yet", "instances": states})
     if any(not node.get("private_ip") for node in states.values()):
         return response(409, {"error": "One or more benchmark private IPs are unavailable", "instances": states})
 
@@ -328,87 +360,80 @@ def run_p2_measured(body):
     for i in range(1, 5):
         legacy_routes.append(f"--route 0x{0x1000+i:04X}={states[f'legacy_ecu{i}']['private_ip']}:{P2_PORT}")
         hpc_routes.append(f"--route 0x{0x2000+i:04X}={states[f'zcu{i}']['private_ip']}:{P2_PORT}")
-        proxy_routes.append(
-            f"--proxy-route 0x{0x3000+i:04X}=0x{0x2000+i:04X}@{states[f'zcu{i}']['private_ip']}:{P2_PORT}"
-        )
+        proxy_routes.append(f"--proxy-route 0x{0x3000+i:04X}=0x{0x2000+i:04X}@{states[f'zcu{i}']['private_ip']}:{P2_PORT}")
 
     command_ids = {}
     try:
         for i, key in enumerate(LEGACY_ECU_KEYS, 1):
             cmd = (
-                f"python3 /tmp/p2_diag_server.py --role legacy_ecu --zone-id {i} "
-                f"--logical-address 0x{0x1000+i:04X} --port {P2_PORT} "
-                f"--mean-ms {profile['mean_ms']} --sigma-ms {profile['sigma_ms']} "
-                f"--min-ms {profile['minimum_ms']} --max-ms {profile['maximum_ms']} --idle-timeout-s 120"
+                f"python3 /tmp/p2_diag_server.py --role legacy_ecu --zone-id {i} --logical-address 0x{0x1000+i:04X} "
+                f"--port {P2_PORT} --mean-ms {profile['mean_ms']} --sigma-ms {profile['sigma_ms']} "
+                f"--min-ms {profile['minimum_ms']} --max-ms {profile['maximum_ms']} "
+                f"--cpu-pressure-pct {cfg['legacy_ecu_cpu_pressure_pct']} --idle-timeout-s 120"
             )
-            command_ids[key] = send_ssm(P2_IDS[key], p2_process_commands("p2_diag_server.py", cmd, auto_stop))
+            command_ids[key] = send_ssm(P2_IDS[key], p2_process_commands("p2_diag_server.py", cmd, cfg["auto_stop"]))
 
         for i, key in enumerate(ZCU_KEYS, 1):
             cmd = (
-                f"python3 /tmp/p2_diag_server.py --role zcu --zone-id {i} "
-                f"--logical-address 0x{0x2000+i:04X} --port {P2_PORT} "
-                f"--mean-ms {profile['mean_ms']} --sigma-ms {profile['sigma_ms']} "
-                f"--min-ms {profile['minimum_ms']} --max-ms {profile['maximum_ms']} --idle-timeout-s 120"
+                f"python3 /tmp/p2_diag_server.py --role zcu --zone-id {i} --logical-address 0x{0x2000+i:04X} "
+                f"--port {P2_PORT} --mean-ms {profile['mean_ms']} --sigma-ms {profile['sigma_ms']} "
+                f"--min-ms {profile['minimum_ms']} --max-ms {profile['maximum_ms']} "
+                f"--cpu-pressure-pct {cfg['zcu_cpu_pressure_pct']} --idle-timeout-s 120"
             )
-            command_ids[key] = send_ssm(P2_IDS[key], p2_process_commands("p2_diag_server.py", cmd, auto_stop))
+            command_ids[key] = send_ssm(P2_IDS[key], p2_process_commands("p2_diag_server.py", cmd, cfg["auto_stop"]))
 
         legacy_gateway_cmd = (
             f"python3 /tmp/p2_router.py --role legacy_gateway --entity-address 0x0D00 --port {P2_PORT} "
             + " ".join(legacy_routes)
-            + f" --can-arb-bps {can_arb_bps} --can-data-bps {can_data_bps} --can-load {can_load} --idle-timeout-s 120"
+            + f" --can-arb-bps {cfg['can_arb_bps']} --can-data-bps {cfg['can_data_bps']} "
+            f"--can-load-a {cfg['can_load_a']} --can-load-b {cfg['can_load_b']} --can-load-c {cfg['can_load_c']} "
+            f"--cpu-pressure-pct {cfg['gateway_cpu_pressure_pct']} --idle-timeout-s 120"
         )
         command_ids["legacy_gateway"] = send_ssm(
-            P2_IDS["legacy_gateway"], p2_process_commands("p2_router.py", legacy_gateway_cmd, auto_stop)
+            P2_IDS["legacy_gateway"], p2_process_commands("p2_router.py", legacy_gateway_cmd, cfg["auto_stop"])
         )
 
         hpc_cmd = (
             f"python3 /tmp/p2_router.py --role hpc --entity-address 0x0A00 --port {P2_PORT} "
             + " ".join(hpc_routes + proxy_routes)
-            + f" --proxy-work-ms {proxy_work_ms} --idle-timeout-s 120"
+            + f" --proxy-work-ms {cfg['proxy_work_ms']} --ethernet-rate-mbps {cfg['ethernet_rate_mbps']} "
+            f"--ethernet-load {cfg['ethernet_load']} --cpu-pressure-pct {cfg['hpc_cpu_pressure_pct']} --idle-timeout-s 120"
         )
-        command_ids["hpc"] = send_ssm(P2_IDS["hpc"], p2_process_commands("p2_router.py", hpc_cmd, auto_stop))
+        command_ids["hpc"] = send_ssm(
+            P2_IDS["hpc"], p2_process_commands("p2_router.py", hpc_cmd, cfg["auto_stop"])
+        )
 
         command_ids["tester"] = send_ssm(
             P2_IDS["tester"],
-            p2_tester_commands(
-                run_id, architecture, states["legacy_gateway"]["private_ip"], states["hpc"]["private_ip"],
-                samples, budget_ms, auto_stop,
-            ),
+            p2_tester_commands(run_id, cfg, states["legacy_gateway"]["private_ip"], states["hpc"]["private_ip"], cfg["auto_stop"]),
         )
     except ClientError as exc:
         err = exc.response.get("Error", {})
         return response(409, {
             "error": f"Measured P2 SSM launch failed [{err.get('Code', 'AWSClientError')}]: {err.get('Message', 'unknown error')}",
-            "instances": states,
-            "commands_started": command_ids,
+            "instances": states, "commands_started": command_ids,
         })
 
-    DDB.put_item(Item={
+    item = {
         "run_id": run_id,
         "created_at": int(time.time()),
-        "experiment": "p2_measured_v2",
-        "architecture": architecture,
+        "experiment": "p2_measured_v3",
         "profile": profile_name,
-        "samples": samples,
-        "budget_ms": str(budget_ms),
-        "proxy_work_ms": str(proxy_work_ms),
-        "can_load": str(can_load),
-        "can_arb_bps": str(can_arb_bps),
-        "can_data_bps": str(can_data_bps),
-        "auto_stop": auto_stop,
-        "transport": "DoIP framing over TCP/IPv4 on private AWS VPC; CAN-FD timing emulated on legacy gateway",
-        "p2_port": P2_PORT,
         "p2_config_json": json.dumps(profile),
+        "benchmark_config_json": json.dumps(cfg),
+        "transport": "DoIP/TCP over real AWS VPC + controlled CAN-FD and automotive-Ethernet timing overlays",
+        "p2_port": P2_PORT,
         "command_ids_json": json.dumps(command_ids),
         "instance_ids_json": json.dumps(P2_IDS),
-    })
+    }
+    DDB.put_item(Item=item)
     return response(202, {
         "run_id": run_id,
         "mode": "measured_aws_vehicle_architecture",
         "transport": "DoIP diagnostic messages over private AWS VPC TCP/13400",
         "port": P2_PORT,
-        "architecture": architecture,
         "profile": profile_name,
+        "benchmark_config": cfg,
         "instances": states,
         "commands": command_ids,
     })
@@ -431,19 +456,13 @@ def command_snapshot(command_id, instance_id):
 
 def get_p2_measured_result(run_id):
     item = DDB.get_item(Key={"run_id": run_id}).get("Item")
-    if not item or item.get("experiment") != "p2_measured_v2":
+    if not item or item.get("experiment") not in ("p2_measured_v2", "p2_measured_v3"):
         return response(404, {"error": "measured P2 run not found"})
     measured = get_json(f"results/{run_id}/p2-measured.json")
     command_ids = json.loads(item.get("command_ids_json", "{}"))
     instance_ids = json.loads(item.get("instance_ids_json", "{}"))
-    commands = {
-        role: command_snapshot(command_id, instance_ids[role])
-        for role, command_id in command_ids.items()
-    }
-    failed = {
-        role: snap for role, snap in commands.items()
-        if snap.get("status") in ("Failed", "TimedOut", "Cancelled", "Cancelling")
-    }
+    commands = {role: command_snapshot(command_id, instance_ids[role]) for role, command_id in command_ids.items()}
+    failed = {role: snap for role, snap in commands.items() if snap.get("status") in ("Failed", "TimedOut", "Cancelled", "Cancelling")}
     body = {"run": item, "complete": measured is not None, "result": measured, "commands": commands}
     if failed and measured is None:
         body["error"] = "One or more benchmark node commands failed before a result was produced."
@@ -451,10 +470,10 @@ def get_p2_measured_result(run_id):
     return response(200, body)
 
 
+# ------------------------------- API --------------------------------
 def handler(event, context):
     if not authorized(event):
         return response(401, {"error": "unauthorized"})
-
     method = event.get("requestContext", {}).get("http", {}).get("method", "")
     path = event.get("rawPath", "")
     try:
@@ -464,7 +483,6 @@ def handler(event, context):
                 "x86_64": state(X86_ID, "ZCU / ESC controller", ssm_map),
                 "arm64": state(ARM_ID, "HPC / vehicle simulator", ssm_map),
             })
-
         if method == "POST" and path.startswith("/instances/"):
             parts = path.strip("/").split("/")
             if len(parts) != 3:
@@ -475,7 +493,6 @@ def handler(event, context):
                 return response(400, {"error": "arch must be x86_64 or arm64"})
             start_stop(iid, action)
             return response(202, {"arch": arch, "action": action})
-
         if method == "POST" and path == "/benchmark/run":
             return run_benchmark(request_json(event))
         if method == "GET" and path.startswith("/benchmark/results/"):
@@ -484,7 +501,6 @@ def handler(event, context):
             return response(200, run_study(request_json(event)))
         if method == "GET" and path == "/p2/measured/status":
             return response(200, p2_states())
-
         if method == "POST" and path.startswith("/p2/measured/nodes/"):
             action = path.rsplit("/", 1)[-1]
             if action not in ("start", "stop"):
@@ -492,7 +508,6 @@ def handler(event, context):
             for instance_id in P2_IDS.values():
                 start_stop(instance_id, action)
             return response(202, {"action": action, "nodes": list(P2_IDS)})
-
         if method == "POST" and path == "/p2/measured/run":
             return run_p2_measured(request_json(event))
         if method == "GET" and path.startswith("/p2/measured/results/"):
@@ -502,10 +517,8 @@ def handler(event, context):
         return response(400, {"error": str(exc)})
     except ClientError as exc:
         err = exc.response.get("Error", {})
-        code = err.get("Code", "AWSClientError")
-        message = err.get("Message", "AWS request failed")
         print(repr(exc))
-        return response(502, {"error": f"AWS error [{code}]: {message}"})
+        return response(502, {"error": f"AWS error [{err.get('Code', 'AWSClientError')}]: {err.get('Message', 'AWS request failed')}"})
     except Exception as exc:
         print(repr(exc))
         return response(500, {"error": f"control-plane error: {type(exc).__name__}"})
