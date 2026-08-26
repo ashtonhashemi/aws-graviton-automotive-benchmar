@@ -50,6 +50,8 @@ aws s3 cp dashboard/benchmark_v3.js "s3://$DASHBOARD_BUCKET/benchmark_v3.js" \
   --content-type application/javascript --cache-control 'no-store,no-cache,must-revalidate,max-age=0' --region "$REGION"
 aws s3 cp dashboard/uds_patch.js "s3://$DASHBOARD_BUCKET/uds_patch.js" \
   --content-type application/javascript --cache-control 'no-store,no-cache,must-revalidate,max-age=0' --region "$REGION"
+aws s3 cp dashboard/uds_run_patch.js "s3://$DASHBOARD_BUCKET/uds_run_patch.js" \
+  --content-type application/javascript --cache-control 'no-store,no-cache,must-revalidate,max-age=0' --region "$REGION"
 aws s3 cp dashboard/benchmark-architecture.svg "s3://$DASHBOARD_BUCKET/benchmark-architecture.svg" \
   --content-type image/svg+xml --cache-control 'no-store,no-cache,must-revalidate,max-age=0' --region "$REGION"
 aws s3 cp dashboard/style.css "s3://$DASHBOARD_BUCKET/style.css" \
@@ -61,7 +63,7 @@ import json, sys
 api_url = sys.argv[1]
 print(f"window.APP_CONFIG = {{ apiBase: {json.dumps(api_url)} }};")
 print("try { if (!sessionStorage.getItem('p2ModeMeasuredDefaultV3')) { sessionStorage.setItem('p2Mode', 'measured'); sessionStorage.setItem('p2ModeMeasuredDefaultV3', '1'); } } catch (_) {}")
-print("window.addEventListener('DOMContentLoaded', () => { const s=document.createElement('script'); s.src='benchmark_v3.js'; s.onload=()=>{ const u=document.createElement('script'); u.src='uds_patch.js'; document.body.appendChild(u); }; document.body.appendChild(s); });")
+print("window.addEventListener('DOMContentLoaded', () => { const s=document.createElement('script'); s.src='benchmark_v3.js'; s.onload=()=>{ const u=document.createElement('script'); u.src='uds_patch.js'; u.onload=()=>{ const r=document.createElement('script'); r.src='uds_run_patch.js'; document.body.appendChild(r); }; document.body.appendChild(u); }; document.body.appendChild(s); });")
 PY
 aws s3 cp "$TMP_CONFIG" "s3://$DASHBOARD_BUCKET/config.js" \
   --content-type application/javascript --cache-control 'no-store,no-cache,must-revalidate,max-age=0' --region "$REGION"
