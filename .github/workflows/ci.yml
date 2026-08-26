@@ -10,6 +10,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Compile Python control and benchmark code
+        run: |
+          python3 -m py_compile src/control/app.py src/control/p2_sim.py
+          python3 -m py_compile diagnostic_timing/aws_measured/doip_codec.py
+          python3 -m py_compile diagnostic_timing/aws_measured/p2_diag_server.py
+          python3 -m py_compile diagnostic_timing/aws_measured/p2_router.py
+          python3 -m py_compile diagnostic_timing/aws_measured/p2_tester.py
       - name: Benchmark smoke tests
         run: make test
       - name: Check dashboard JavaScript
