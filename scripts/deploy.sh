@@ -50,6 +50,8 @@ aws s3 cp dashboard/app.js "s3://$DASHBOARD_BUCKET/app.js" \
   --content-type application/javascript --cache-control 'no-store,no-cache,must-revalidate,max-age=0' --region "$REGION"
 aws s3 cp dashboard/benchmark_v3.js "s3://$DASHBOARD_BUCKET/benchmark_v3.js" \
   --content-type application/javascript --cache-control 'no-store,no-cache,must-revalidate,max-age=0' --region "$REGION"
+aws s3 cp dashboard/benchmark-architecture.svg "s3://$DASHBOARD_BUCKET/benchmark-architecture.svg" \
+  --content-type image/svg+xml --cache-control 'no-store,no-cache,must-revalidate,max-age=0' --region "$REGION"
 aws s3 cp dashboard/style.css "s3://$DASHBOARD_BUCKET/style.css" \
   --content-type text/css --cache-control 'no-store,no-cache,must-revalidate,max-age=0' --region "$REGION"
 
@@ -93,6 +95,7 @@ Measured SAE J1979-2 / OBDonUDS architecture benchmark:
   ZCU 4:          $(output P2Zcu4PrivateIp)
 
 Measured diagnostic transport: DoIP framing over private VPC TCP/13400.
+Benchmark comparison: legacy gateway + CAN-FD versus Graviton HPC application proxy + automotive Ethernet.
 Dashboard controls: J1979-2 service, sequential/4-way traffic, three CAN-FD bus loads,
 CAN-FD bit rates, automotive-Ethernet rate/load, CPU pressure, server processing, proxy workload, and P2 budget.
 The J1979-2 service harness uses synthetic lab data and is not a conformance test.
