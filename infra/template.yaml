@@ -1,13 +1,13 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: AWS automotive systems lab with distributed ESC SIL and measured OBDonUDS-style P2Tester architecture timing
+Description: AWS automotive systems lab with distributed ESC SIL and measured legacy-vs-zonal OBDonUDS architecture benchmarking
 
 Parameters:
   VpcId:
     Type: AWS::EC2::VPC::Id
   SubnetId:
     Type: AWS::EC2::Subnet::Id
-    Description: Subnet with outbound internet access so SSM and S3 are reachable.
+    Description: Single-AZ subnet with outbound internet access so SSM and S3 are reachable.
   AdminToken:
     Type: String
     NoEcho: true
@@ -19,10 +19,14 @@ Parameters:
   ArmInstanceType:
     Type: String
     Default: c8g.large
-  P2NodeInstanceType:
+  P2X86InstanceType:
     Type: String
-    Default: t3.small
-    Description: Instance type for Tester, HPC, Zone, and Target nodes in the measured P2Tester lab.
+    Default: c7i.large
+    Description: Fixed-performance x86 type for tester, legacy gateway, legacy ECUs, and ZCU simulation nodes.
+  P2HpcInstanceType:
+    Type: String
+    Default: c8g.large
+    Description: AWS Graviton instance used as the zonal vehicle HPC.
   X86Ami:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
@@ -77,7 +81,7 @@ Resources:
       SecurityGroupEgress:
         - IpProtocol: '-1'
           CidrIp: 0.0.0.0/0
-          Description: Outbound access for SSM, S3, and VPC communication
+          Description: Outbound access for SSM, S3, and private VPC communication
 
   EscUdpIngress:
     Type: AWS::EC2::SecurityGroupIngress
@@ -97,7 +101,7 @@ Resources:
       FromPort: 13400
       ToPort: 13400
       SourceSecurityGroupId: !Ref WorkerSecurityGroup
-      Description: Private OBDonUDS-style P2Tester measurement traffic between lab nodes
+      Description: Private DoIP diagnostic-message traffic for measured architecture benchmarking
 
   WorkerRole:
     Type: AWS::IAM::Role
@@ -148,8 +152,6 @@ Resources:
           #!/bin/bash
           set -euxo pipefail
           dnf install -y jq
-          python3 --version
-          aws --version
           systemctl enable --now amazon-ssm-agent || true
           shutdown -h now
 
@@ -174,8 +176,6 @@ Resources:
           #!/bin/bash
           set -euxo pipefail
           dnf install -y jq
-          python3 --version
-          aws --version
           systemctl enable --now amazon-ssm-agent || true
           shutdown -h now
 
@@ -183,14 +183,14 @@ Resources:
     Type: AWS::EC2::Instance
     Properties:
       ImageId: !Ref X86Ami
-      InstanceType: !Ref P2NodeInstanceType
+      InstanceType: !Ref P2X86InstanceType
       IamInstanceProfile: !Ref WorkerInstanceProfile
       SubnetId: !Ref SubnetId
       SecurityGroupIds: [!Ref WorkerSecurityGroup]
       InstanceInitiatedShutdownBehavior: stop
       Tags:
         - Key: Name
-          Value: p2tester-external-tester
+          Value: p2-external-obd-tester
         - Key: Role
           Value: P2-Tester
         - Key: Project
@@ -200,25 +200,143 @@ Resources:
           #!/bin/bash
           set -euxo pipefail
           dnf install -y jq
-          python3 --version
-          aws --version
+          systemctl enable --now amazon-ssm-agent || true
+          shutdown -h now
+
+  P2LegacyGatewayWorker:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref X86Ami
+      InstanceType: !Ref P2X86InstanceType
+      IamInstanceProfile: !Ref WorkerInstanceProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref WorkerSecurityGroup]
+      InstanceInitiatedShutdownBehavior: stop
+      Tags:
+        - Key: Name
+          Value: p2-legacy-central-gateway
+        - Key: Role
+          Value: P2-Legacy-Gateway
+        - Key: Project
+          Value: aws-graviton-automotive-benchmark
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf install -y jq
+          systemctl enable --now amazon-ssm-agent || true
+          shutdown -h now
+
+  P2LegacyEcu1Worker:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref X86Ami
+      InstanceType: !Ref P2X86InstanceType
+      IamInstanceProfile: !Ref WorkerInstanceProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref WorkerSecurityGroup]
+      InstanceInitiatedShutdownBehavior: stop
+      Tags:
+        - Key: Name
+          Value: p2-legacy-ecu-1
+        - Key: Role
+          Value: P2-Legacy-ECU-1
+        - Key: Project
+          Value: aws-graviton-automotive-benchmark
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf install -y jq
+          systemctl enable --now amazon-ssm-agent || true
+          shutdown -h now
+
+  P2LegacyEcu2Worker:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref X86Ami
+      InstanceType: !Ref P2X86InstanceType
+      IamInstanceProfile: !Ref WorkerInstanceProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref WorkerSecurityGroup]
+      InstanceInitiatedShutdownBehavior: stop
+      Tags:
+        - Key: Name
+          Value: p2-legacy-ecu-2
+        - Key: Role
+          Value: P2-Legacy-ECU-2
+        - Key: Project
+          Value: aws-graviton-automotive-benchmark
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf install -y jq
+          systemctl enable --now amazon-ssm-agent || true
+          shutdown -h now
+
+  P2LegacyEcu3Worker:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref X86Ami
+      InstanceType: !Ref P2X86InstanceType
+      IamInstanceProfile: !Ref WorkerInstanceProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref WorkerSecurityGroup]
+      InstanceInitiatedShutdownBehavior: stop
+      Tags:
+        - Key: Name
+          Value: p2-legacy-ecu-3
+        - Key: Role
+          Value: P2-Legacy-ECU-3
+        - Key: Project
+          Value: aws-graviton-automotive-benchmark
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf install -y jq
+          systemctl enable --now amazon-ssm-agent || true
+          shutdown -h now
+
+  P2LegacyEcu4Worker:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref X86Ami
+      InstanceType: !Ref P2X86InstanceType
+      IamInstanceProfile: !Ref WorkerInstanceProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref WorkerSecurityGroup]
+      InstanceInitiatedShutdownBehavior: stop
+      Tags:
+        - Key: Name
+          Value: p2-legacy-ecu-4
+        - Key: Role
+          Value: P2-Legacy-ECU-4
+        - Key: Project
+          Value: aws-graviton-automotive-benchmark
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf install -y jq
           systemctl enable --now amazon-ssm-agent || true
           shutdown -h now
 
   P2HpcWorker:
     Type: AWS::EC2::Instance
     Properties:
-      ImageId: !Ref X86Ami
-      InstanceType: !Ref P2NodeInstanceType
+      ImageId: !Ref ArmAmi
+      InstanceType: !Ref P2HpcInstanceType
       IamInstanceProfile: !Ref WorkerInstanceProfile
       SubnetId: !Ref SubnetId
       SecurityGroupIds: [!Ref WorkerSecurityGroup]
       InstanceInitiatedShutdownBehavior: stop
       Tags:
         - Key: Name
-          Value: p2tester-hpc
+          Value: p2-zonal-hpc-graviton
         - Key: Role
-          Value: P2-HPC
+          Value: P2-Zonal-HPC
         - Key: Project
           Value: aws-graviton-automotive-benchmark
       UserData:
@@ -226,25 +344,23 @@ Resources:
           #!/bin/bash
           set -euxo pipefail
           dnf install -y jq
-          python3 --version
-          aws --version
           systemctl enable --now amazon-ssm-agent || true
           shutdown -h now
 
-  P2ZoneWorker:
+  P2Zcu1Worker:
     Type: AWS::EC2::Instance
     Properties:
       ImageId: !Ref X86Ami
-      InstanceType: !Ref P2NodeInstanceType
+      InstanceType: !Ref P2X86InstanceType
       IamInstanceProfile: !Ref WorkerInstanceProfile
       SubnetId: !Ref SubnetId
       SecurityGroupIds: [!Ref WorkerSecurityGroup]
       InstanceInitiatedShutdownBehavior: stop
       Tags:
         - Key: Name
-          Value: p2tester-zone-controller
+          Value: p2-zcu-1
         - Key: Role
-          Value: P2-Zone
+          Value: P2-ZCU-1
         - Key: Project
           Value: aws-graviton-automotive-benchmark
       UserData:
@@ -252,25 +368,23 @@ Resources:
           #!/bin/bash
           set -euxo pipefail
           dnf install -y jq
-          python3 --version
-          aws --version
           systemctl enable --now amazon-ssm-agent || true
           shutdown -h now
 
-  P2TargetWorker:
+  P2Zcu2Worker:
     Type: AWS::EC2::Instance
     Properties:
       ImageId: !Ref X86Ami
-      InstanceType: !Ref P2NodeInstanceType
+      InstanceType: !Ref P2X86InstanceType
       IamInstanceProfile: !Ref WorkerInstanceProfile
       SubnetId: !Ref SubnetId
       SecurityGroupIds: [!Ref WorkerSecurityGroup]
       InstanceInitiatedShutdownBehavior: stop
       Tags:
         - Key: Name
-          Value: p2tester-target-ecu
+          Value: p2-zcu-2
         - Key: Role
-          Value: P2-Target-ECU
+          Value: P2-ZCU-2
         - Key: Project
           Value: aws-graviton-automotive-benchmark
       UserData:
@@ -278,8 +392,54 @@ Resources:
           #!/bin/bash
           set -euxo pipefail
           dnf install -y jq
-          python3 --version
-          aws --version
+          systemctl enable --now amazon-ssm-agent || true
+          shutdown -h now
+
+  P2Zcu3Worker:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref X86Ami
+      InstanceType: !Ref P2X86InstanceType
+      IamInstanceProfile: !Ref WorkerInstanceProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref WorkerSecurityGroup]
+      InstanceInitiatedShutdownBehavior: stop
+      Tags:
+        - Key: Name
+          Value: p2-zcu-3
+        - Key: Role
+          Value: P2-ZCU-3
+        - Key: Project
+          Value: aws-graviton-automotive-benchmark
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf install -y jq
+          systemctl enable --now amazon-ssm-agent || true
+          shutdown -h now
+
+  P2Zcu4Worker:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref X86Ami
+      InstanceType: !Ref P2X86InstanceType
+      IamInstanceProfile: !Ref WorkerInstanceProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref WorkerSecurityGroup]
+      InstanceInitiatedShutdownBehavior: stop
+      Tags:
+        - Key: Name
+          Value: p2-zcu-4
+        - Key: Role
+          Value: P2-ZCU-4
+        - Key: Project
+          Value: aws-graviton-automotive-benchmark
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf install -y jq
           systemctl enable --now amazon-ssm-agent || true
           shutdown -h now
 
@@ -304,9 +464,16 @@ Resources:
           X86_INSTANCE_ID: !Ref X86Worker
           ARM_INSTANCE_ID: !Ref ArmWorker
           P2_TESTER_INSTANCE_ID: !Ref P2TesterWorker
+          P2_LEGACY_GATEWAY_INSTANCE_ID: !Ref P2LegacyGatewayWorker
+          P2_LEGACY_ECU1_INSTANCE_ID: !Ref P2LegacyEcu1Worker
+          P2_LEGACY_ECU2_INSTANCE_ID: !Ref P2LegacyEcu2Worker
+          P2_LEGACY_ECU3_INSTANCE_ID: !Ref P2LegacyEcu3Worker
+          P2_LEGACY_ECU4_INSTANCE_ID: !Ref P2LegacyEcu4Worker
           P2_HPC_INSTANCE_ID: !Ref P2HpcWorker
-          P2_ZONE_INSTANCE_ID: !Ref P2ZoneWorker
-          P2_TARGET_INSTANCE_ID: !Ref P2TargetWorker
+          P2_ZCU1_INSTANCE_ID: !Ref P2Zcu1Worker
+          P2_ZCU2_INSTANCE_ID: !Ref P2Zcu2Worker
+          P2_ZCU3_INSTANCE_ID: !Ref P2Zcu3Worker
+          P2_ZCU4_INSTANCE_ID: !Ref P2Zcu4Worker
           ADMIN_TOKEN: !Ref AdminToken
       Policies:
         - Version: '2012-10-17'
@@ -475,19 +642,48 @@ Outputs:
     Value: !Ref ArmWorker
   GravitonHpcPrivateIp:
     Value: !GetAtt ArmWorker.PrivateIp
+
   P2TesterInstanceId:
     Value: !Ref P2TesterWorker
   P2TesterPrivateIp:
     Value: !GetAtt P2TesterWorker.PrivateIp
+  P2LegacyGatewayInstanceId:
+    Value: !Ref P2LegacyGatewayWorker
+  P2LegacyGatewayPrivateIp:
+    Value: !GetAtt P2LegacyGatewayWorker.PrivateIp
+  P2LegacyEcu1InstanceId:
+    Value: !Ref P2LegacyEcu1Worker
+  P2LegacyEcu1PrivateIp:
+    Value: !GetAtt P2LegacyEcu1Worker.PrivateIp
+  P2LegacyEcu2InstanceId:
+    Value: !Ref P2LegacyEcu2Worker
+  P2LegacyEcu2PrivateIp:
+    Value: !GetAtt P2LegacyEcu2Worker.PrivateIp
+  P2LegacyEcu3InstanceId:
+    Value: !Ref P2LegacyEcu3Worker
+  P2LegacyEcu3PrivateIp:
+    Value: !GetAtt P2LegacyEcu3Worker.PrivateIp
+  P2LegacyEcu4InstanceId:
+    Value: !Ref P2LegacyEcu4Worker
+  P2LegacyEcu4PrivateIp:
+    Value: !GetAtt P2LegacyEcu4Worker.PrivateIp
   P2HpcInstanceId:
     Value: !Ref P2HpcWorker
   P2HpcPrivateIp:
     Value: !GetAtt P2HpcWorker.PrivateIp
-  P2ZoneInstanceId:
-    Value: !Ref P2ZoneWorker
-  P2ZonePrivateIp:
-    Value: !GetAtt P2ZoneWorker.PrivateIp
-  P2TargetInstanceId:
-    Value: !Ref P2TargetWorker
-  P2TargetPrivateIp:
-    Value: !GetAtt P2TargetWorker.PrivateIp
+  P2Zcu1InstanceId:
+    Value: !Ref P2Zcu1Worker
+  P2Zcu1PrivateIp:
+    Value: !GetAtt P2Zcu1Worker.PrivateIp
+  P2Zcu2InstanceId:
+    Value: !Ref P2Zcu2Worker
+  P2Zcu2PrivateIp:
+    Value: !GetAtt P2Zcu2Worker.PrivateIp
+  P2Zcu3InstanceId:
+    Value: !Ref P2Zcu3Worker
+  P2Zcu3PrivateIp:
+    Value: !GetAtt P2Zcu3Worker.PrivateIp
+  P2Zcu4InstanceId:
+    Value: !Ref P2Zcu4Worker
+  P2Zcu4PrivateIp:
+    Value: !GetAtt P2Zcu4Worker.PrivateIp
